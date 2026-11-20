@@ -81,12 +81,9 @@ set_core_config() {
             fi
             ;;
         c)
-            if [ -s "$CRASHDIR"/configs/providers.cfg ] || [ -s "$CRASHDIR"/configs/providers_uri.cfg ]; then
-                . "$CRASHDIR"/menus/subconverter.sh
-                subconverter
-            else
-                msg_alert "$CORECFG_ADD_PROVIDER_FIRST"
-            fi
+            # 安全加固：在线订阅转换会把订阅链接拼入第三方转换站（有偷订阅风险），已禁用。
+            # 请用「在线获取此配置文件（不使用订阅转换）」或 Mihomo 原生 HTTP provider。
+            msg_alert "\033[31m$CORECFG_SUBCONV_DISABLED\033[0m"
             ;;
         d)
             comp_box "\033[33m$CORECFG_CLEAR_WARN\033[0m" \

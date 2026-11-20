@@ -12,10 +12,10 @@ private_bot() {
     top_box "$BOT_TG_PRIVATE_TOP"
 }
 
+# 安全加固：已移除第三方公共机器人（publictoken）中转，仅保留用户自建 Bot
 public_bot() {
-    comp_box "$BOT_TG_PUBLIC_HINT"
-    TOKEN=publictoken
-    url_tg=https://tgbot.jwsc.eu.org/publictoken/getUpdates
+    msg_alert "\033[31m$BOT_TG_PUBLIC_DISABLED\033[0m"
+    return 1
 }
 
 tg_push_token() {

@@ -41,11 +41,6 @@ $BOT_TG_HELP_PROJECT
 https://github.com/juewuy/ShellClash
 $BOT_TG_HELP_GUIDE
 https://juewuy.github.io
-$BOT_TG_HELP_COFFEE
-https://juewuy.github.io/yOF4Yf06Q/
-$BOT_TG_HELP_AIRPORT
-https://dler.pro/auth/register?affid=89698
-https://pub.bigmeok.me?code=2PuWY9I7
 EOF
 )
     send_msg "$TEXT"

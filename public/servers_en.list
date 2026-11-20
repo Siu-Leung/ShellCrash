@@ -2,12 +2,12 @@
 
 101 Jsdelivr_CDN https://cdn.jsdelivr.net/gh/juewuy/ShellCrash
 102 Github https://raw.githubusercontent.com/juewuy/ShellCrash
-103 ShellClash https://gh.jwsc.eu.org
+# [安全加固] 已移除第三方中转/转换源: 103 ShellClash https://gh.jwsc.eu.org
 104 Cloudflare https://testingcf.jsdelivr.net/gh/juewuy/ShellCrash
 
-401 ... https://sub.jwsc.eu.org ua
-402 ... https://api.v1.mk diyua
-403 ... https://url.v1.mk diyua
+# [安全加固] 已移除第三方中转/转换源: 401 ... https://sub.jwsc.eu.org ua
+# [安全加固] 已移除第三方中转/转换源: 402 ... https://api.v1.mk diyua
+# [安全加固] 已移除第三方中转/转换源: 403 ... https://url.v1.mk diyua
 
 501 Acl4SSR全能优化版 https://github.com/juewuy/ShellCrash/raw/dev/rules/ShellClash.ini (推荐)
 502 Acl4SSR精简优化版 https://github.com/juewuy/ShellCrash/raw/dev/rules/ShellClash_Mini.ini (推荐)

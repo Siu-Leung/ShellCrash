@@ -15,12 +15,15 @@ logger() {
     #推送远程日志
     [ "$3" != off ] && {
         [ -n "$device_name" ] && log_text="$log_text($device_name)"
-        [ -n "$push_TG" ] && {
+        # 安全加固：仅使用用户自建 Telegram Bot（api.telegram.org），移除第三方公共机器人中转
+        case "$push_TG" in
+        '' | publictoken) : ;;
+        *)
             url="https://api.telegram.org/bot${push_TG}/sendMessage"
-            [ "$push_TG" = 'publictoken' ] && url='https://tgbot.jwsc.eu.org/publictoken/sendMessage'
             content="{\"chat_id\":\"${chat_ID}\",\"text\":\"$log_text\"}"
             web_json_post "$url" "$content" &
-        }
+            ;;
+        esac
         [ -n "$push_bark" ] && {
             url="${push_bark}"
             content="{\"body\":\"${log_text}\",\"title\":\"ShellCrash_log\",\"level\":\"passive\",\"badge\":\"1\"}"

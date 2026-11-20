@@ -264,9 +264,9 @@ log_pusher() {
             else
                 # echo -e "\033[33m详细设置指南请参考 https://juewuy.github.io/ \033[0m"
                 . "$CRASHDIR"/menus/bot_tg_bind.sh
+                # 安全加固：移除公共机器人选项，仅保留用户自建机器人
                 chose_bot() {
-                    comp_box "$TOOLS_BOT_PUBLIC" \
-                        "$TOOLS_BOT_PRIVATE" \
+                    comp_box "1) $TOOLS_BOT_PRIVATE" \
                         "" \
                         "0) $COMMON_BACK"
                     read -r -p "$COMMON_INPUT> " num
@@ -275,10 +275,6 @@ log_pusher() {
                         return 0
                         ;;
                     1)
-                        public_bot
-                        set_bot && tg_push_token || chose_bot
-                        ;;
-                    2)
                         private_bot
                         set_bot && tg_push_token || chose_bot
                         ;;

@@ -48,11 +48,6 @@ https://t.me/+RKujv98Gbx5zGY-P
 https://github.com/juewuy/ShellCrash
 相关教程：
 https://juewuy.github.io
-请喝咖啡：
-https://juewuy.github.io/yOF4Yf06Q/
-友情机场： 
-https://dler.pro/auth/register?affid=89698
-https://pub.bigmeok.me?code=2PuWY9I7
 EOF
 )
 	send_msg "$TEXT"

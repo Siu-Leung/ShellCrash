@@ -2,6 +2,7 @@ BOT_TG_PRIVATE_HINT="请先通过 \033[32;4mhttps://t.me/BotFather\033[0m 申请
 BOT_TG_INPUT_TOKEN="请输入你获取到的API TOKEN"
 BOT_TG_PRIVATE_TOP="请向\033[32m你申请的机器人\033[33m而不是BotFather！\033[0m"
 BOT_TG_PUBLIC_HINT="请向机器人：\033[32;4mhttps://t.me/ShellCrashtg_bot\033[0m"
+BOT_TG_PUBLIC_DISABLED="公共机器人中转已移除（安全加固版），请使用私人机器人。"
 BOT_TG_SET_DONE="已完成Telegram日志推送设置！"
 BOT_TG_CHATID_RETRY_PREFIX="第"
 BOT_TG_CHATID_RETRY_SUFFIX="次尝试获取对话ID失败，正在重试..."

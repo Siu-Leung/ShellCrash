@@ -2,6 +2,7 @@ BOT_TG_PRIVATE_HINT="Please apply for a Telegram bot via \033[32;4mhttps://t.me/
 BOT_TG_INPUT_TOKEN="Please enter your API TOKEN"
 BOT_TG_PRIVATE_TOP="Please send to \033[32myour bot\033[33m, NOT BotFather!\033[0m"
 BOT_TG_PUBLIC_HINT="Please message the bot: \033[32;4mhttps://t.me/ShellCrashtg_bot\033[0m"
+BOT_TG_PUBLIC_DISABLED="Public bot relay removed (security-hardened build). Please use your own private bot."
 BOT_TG_SET_DONE="Telegram log push has been configured!"
 BOT_TG_CHATID_RETRY_PREFIX="Attempt"
 BOT_TG_CHATID_RETRY_SUFFIX="to get chat ID failed, retrying..."

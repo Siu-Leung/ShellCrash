@@ -64,14 +64,6 @@ export url='https://testingcf.jsdelivr.net/gh/juewuy/ShellCrash@master' \
   && . /etc/profile &> /dev/null
 ```
 
-> 或使用 curl 安装（作者私人源）
-
-```sh
-export url='https://gh.jwsc.eu.org/master' \
-  && bash -c "$(curl -kfsSl $url/install.sh)" \
-  && . /etc/profile &> /dev/null
-```
-
 ### :satellite: 路由器设备安装
 
 **使用 `curl` 安装：**
@@ -86,13 +78,6 @@ export url='https://raw.githubusercontent.com/juewuy/ShellCrash/master' \
 
 ```sh
 export url='https://testingcf.jsdelivr.net/gh/juewuy/ShellCrash@master' \
-  && sh -c "$(curl -kfsSl $url/install.sh)" \
-  && . /etc/profile &> /dev/null
-```
-
-> 或作者私人源
-```sh
-export url='https://gh.jwsc.eu.org/master' \
   && sh -c "$(curl -kfsSl $url/install.sh)" \
   && . /etc/profile &> /dev/null
 ```
@@ -115,14 +100,6 @@ export url='https://testingcf.jsdelivr.net/gh/juewuy/ShellCrash@master' \
 ```
 
 ### :pager: 老旧设备使用低版本 `wget` 安装
-
-> 作者私人 http 内测源
-```sh
-export url='http://t.jwsc.eu.org' \
-  && wget -q -O /tmp/install.sh $url/install.sh \
-  && sh /tmp/install.sh \
-  && . /etc/profile &> /dev/null
-```
 
 
 ### :cloud: 虚拟机

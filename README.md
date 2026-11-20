@@ -64,12 +64,6 @@ export url='https://testingcf.jsdelivr.net/gh/juewuy/ShellCrash@dev' \
   && . /etc/profile &> /dev/null
 ```
 
-> Or install via curl (Author's private source)
-
-```sh
-export url='https://gh.jwsc.eu.org/dev' && bash -c "$(curl -kfsSl $url/install_en.sh)" && . /etc/profile &> /dev/null
-```
-
 ### :satellite: Router Device Installation
 
 **Installation via `curl`:**
@@ -86,11 +80,6 @@ export url='https://raw.githubusercontent.com/juewuy/ShellCrash/dev' \
 export url='https://testingcf.jsdelivr.net/gh/juewuy/ShellCrash@dev' \
   && sh -c "$(curl -kfsSl $url/install_en.sh)" \
   && . /etc/profile &> /dev/null
-```
-
-> Or Author's private source
-```sh
-export url='https://gh.jwsc.eu.org/dev' && sh -c "$(curl -kfsSl $url/install_en.sh)" && . /etc/profile &> /dev/null
 ```
 
 **Installation via `wget`:**
@@ -111,14 +100,6 @@ export url='https://testingcf.jsdelivr.net/gh/juewuy/ShellCrash@dev' \
 ```
 
 ### :pager: Installation for Legacy Devices with Older `wget` Versions
-
-> Author's private HTTP beta source
-```sh
-export url='http://t.jwsc.eu.org' \
-  && wget -q -O /tmp/install.sh $url/install_en.sh \
-  && sh /tmp/install.sh \
-  && . /etc/profile &> /dev/null
-```
 
 
 ### :cloud: Virtual Machines

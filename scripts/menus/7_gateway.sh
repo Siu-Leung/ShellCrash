@@ -244,7 +244,13 @@ set_bot_tg() {
             fi
             ;;
         2)
-            if [ -n "$chat_ID" ] && [ -n "$push_TG" ] && [ "$push_TG" != 'publictoken' ]; then
+            # 安全加固：publictoken 中转已移除，只认用户自建 Bot token
+            valid_tg=0
+            case "$push_TG" in
+            '' | publictoken) valid_tg=0 ;;
+            *) [ -n "$chat_ID" ] && valid_tg=1 ;;
+            esac
+            if [ "$valid_tg" = 1 ]; then
                 comp_box "$GW_TG_BOUND_DETECTED" \
                     "$GW_TG_USE_DIRECT"
                 btm_box "1) $GW_YES" \

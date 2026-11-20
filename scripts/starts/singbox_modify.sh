@@ -358,6 +358,12 @@ EOF
 }
 
 gen_inbounds() { #生成inbounds.json
+    # 安全加固：纯净模式未开启公网访问时，mixed-in 仅监听 127.0.0.1
+    if [ "$firewall_area" = "4" ] && [ "$public_support" != "ON" ]; then
+        _sb_listen="127.0.0.1"
+    else
+        _sb_listen="::"
+    fi
     [ -n "$authentication" ] && {
         username=$(echo $authentication | awk -F ':' '{print $1}') #混合端口账号密码
         password=$(echo $authentication | awk -F ':' '{print $2}')
@@ -369,7 +375,7 @@ gen_inbounds() { #生成inbounds.json
     {
       "type": "mixed",
       "tag": "mixed-in",
-      "listen": "::",
+      "listen": "$_sb_listen",
       $userpass
       "listen_port": $mix_port
     },
@@ -444,11 +450,17 @@ EOF
 
 gen_experimental() { #生成experimental.json
     [ "$crashcore" = "singboxr" ] && urltest_unified_delay=',"urltest_unified_delay": true'
+    # 安全加固：纯净模式未开启公网访问时，external_controller 仅监听 127.0.0.1
+    if [ "$firewall_area" = "4" ] && [ "$public_support" != "ON" ]; then
+        _sb_ext_ctrl="127.0.0.1:$db_port"
+    else
+        _sb_ext_ctrl="0.0.0.0:$db_port"
+    fi
     cat >"$TMPDIR"/jsons/experimental.json <<EOF
 {
   "experimental": {
     "clash_api": {
-      "external_controller": "0.0.0.0:$db_port",
+      "external_controller": "$_sb_ext_ctrl",
       "external_ui": "ui",
       "external_ui_download_url": "$external_ui_url",
       "secret": "$secret",

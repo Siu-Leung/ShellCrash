@@ -99,17 +99,25 @@ EOF
 }
 
 generate_set_and_hosts_yaml() {
+    # 安全加固：纯净模式(firewall_area=4)下未开启公网访问时，默认仅绑定 127.0.0.1，避免无密码端口裸奔公网
+    if [ "$firewall_area" = "4" ] && [ "$public_support" != "ON" ]; then
+        _allow_lan='false'
+        _ext_ctrl="127.0.0.1:$db_port"
+    else
+        _allow_lan='true'
+        _ext_ctrl=":$db_port"
+    fi
     #生成set.yaml
     cat >"$TMPDIR"/set.yaml <<EOF
 mixed-port: $mix_port
 redir-port: $redir_port
 tproxy-port: $tproxy_port
 authentication: ["$authentication"]
-allow-lan: true
+allow-lan: $_allow_lan
 mode: Rule
 log-level: info
 ipv6: true
-external-controller: :$db_port
+external-controller: $_ext_ctrl
 external-ui: ui
 external-ui-url: "$external_ui_url"
 secret: $secret

@@ -17,6 +17,29 @@
 
 LOCAL_SUB_URI_RE='^(ss|ssr|vmess|vless|trojan|hysteria|hysteria2|hy2|tuic|anytls|shadowtls|wireguard|socks|http)://'
 
+# 转义双引号与反斜杠，防止过滤正则破坏 YAML/JSON 字符串语法
+local_escape_dq() {
+    printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
+}
+
+# 字面量替换模板占位符（避免 sed 对 / 和 & 的特殊解释）
+local_replace_placeholder() {
+    _file=$1
+    _needle=$2
+    _repl=$3
+    awk -v n="$_needle" -v r="$_repl" '
+        {
+            out = ""
+            line = $0
+            while ((idx = index(line, n)) > 0) {
+                out = out substr(line, 1, idx - 1) r
+                line = substr(line, idx + length(n))
+            }
+            print out line
+        }
+    ' "$_file" >"${_file}.tmp.$$" && mv -f "${_file}.tmp.$$" "$_file"
+}
+
 # 本地 Base64 解码（兼容 BusyBox / GNU base64 / openssl，自动处理 URL-safe 与缺失 padding）
 local_b64_decode() {
     _in_file=$1
@@ -219,8 +242,8 @@ local_build_clash_config() {
       udp: true
 ${_skip_line}
 EOF
-        [ -n "$_pinc" ] && printf '    filter: "%s"\n' "$_pinc" >>"$TMPDIR/providers/providers.yaml"
-        [ -n "$_pexc" ] && printf '    exclude-filter: "%s"\n' "$_pexc" >>"$TMPDIR/providers/providers.yaml"
+        [ -n "$_pinc" ] && printf '    filter: "%s"\n' "$(local_escape_dq "$_pinc")" >>"$TMPDIR/providers/providers.yaml"
+        [ -n "$_pexc" ] && printf '    exclude-filter: "%s"\n' "$(local_escape_dq "$_pexc")" >>"$TMPDIR/providers/providers.yaml"
         echo '  - {name: '"$_ptag"', type: url-test, tolerance: 100, lazy: true, use: ['"$_ptag"']}' >>"$TMPDIR/providers/proxy-groups.yaml"
         _tags=$(printf '%s, %s' "$_tags" "$_ptag" | sed 's/^, //')
         _ok_count=$((_ok_count + 1))
@@ -274,7 +297,7 @@ EOF
         return 1
     fi
 
-    sed -i "s/{providers_tags}/$_tags/g" "$TMPDIR/providers/proxy-groups.yaml"
+    local_replace_placeholder "$TMPDIR/providers/proxy-groups.yaml" "{providers_tags}" "$_tags"
     cat "$TMPDIR/providers/providers.yaml" "$TMPDIR/providers/proxy-groups.yaml" "$TMPDIR/providers/rules.yaml" >"$TMPDIR/config.yaml"
     rm -rf "$TMPDIR/providers" "$TMPDIR/local_sub"
 
@@ -338,8 +361,8 @@ EOF
         _pinc=$5
         _exc_line=""
         _inc_line=""
-        [ -n "$_pexc" ] && _exc_line="      \"exclude\": \"$_pexc\","
-        [ -n "$_pinc" ] && _inc_line="      \"include\": \"$_pinc\","
+        [ -n "$_pexc" ] && _exc_line="      \"exclude\": \"$(local_escape_dq "$_pexc")\","
+        [ -n "$_pinc" ] && _inc_line="      \"include\": \"$(local_escape_dq "$_pinc")\","
         cat >>"$TMPDIR/providers/providers.json" <<EOF
     {
       "tag": "$_ptag",
@@ -354,7 +377,7 @@ ${_inc_line}
         "timeout": "3s"
       },
       "override_dialer": {
-        "domain_resolver": "$dns_proxy_server"
+        "domain_resolver": "dns_proxy_server"
       },
       "override_tls": {
         "enabled": true,
@@ -417,7 +440,9 @@ EOF
 
     sed -i '$s/},/}]}/' "$TMPDIR/providers/outbounds_add.json"
     sed -i '$s/},/}]}/' "$TMPDIR/providers/providers.json"
-    sed "s/{providers_tags}/$_tags/g; s/\"providers_tags\"/$_tags/g" "$TMPDIR/provider_temp_file" >"$TMPDIR/providers/outbounds.json"
+    cp -f "$TMPDIR/provider_temp_file" "$TMPDIR/providers/outbounds.json"
+    local_replace_placeholder "$TMPDIR/providers/outbounds.json" "{providers_tags}" "$_tags"
+    local_replace_placeholder "$TMPDIR/providers/outbounds.json" "\"providers_tags\"" "$_tags"
     rm -f "$TMPDIR/provider_temp_file"
 
     if [ "${LOCAL_SUB_SKIP_CORE_TEST:-0}" != "1" ]; then

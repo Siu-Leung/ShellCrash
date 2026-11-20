@@ -274,7 +274,10 @@ jobs:
           [ "${{ inputs.tag6 }}" = upx ] && sed -i "s/${crashcore}_v=.*/${crashcore}_v=${VERSION}/" ./bin/version
           git config --global user.email "github-actions[bot]@users.noreply.github.com" && git config --global user.name "github-actions[bot]"
           git add . && git commit -m "更新${crashcore}内核至${VERSION}" || exit 0
-          git push
+          for i in 1 2 3; do
+            git pull --rebase origin update && git push && break
+            sleep 5
+          done
           #刷新cdn缓存
           sleep 60
           find "bin/${crashcore}" -type f | while read -r file; do

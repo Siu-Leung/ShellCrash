@@ -5,6 +5,10 @@ on:
         - cron: 0 18 */3 * *
     workflow_dispatch:
 
+concurrency:
+  group: shellcrash-update-branch
+  cancel-in-progress: false
+
 jobs:
     
   auto_update_singboxr_dev:

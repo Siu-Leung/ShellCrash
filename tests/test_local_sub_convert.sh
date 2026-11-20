@@ -147,6 +147,43 @@ else
     fail "仍存在 ShellClash 拼写错误"
 fi
 
+
+echo "== 5. 深度工程与安全加固回归（set_config / domain_resolver / 纯净监听 / CI 并发锁）=="
+. ./scripts/libs/set_config.sh
+TEST_CFG="$SANDBOX/test.cfg"
+if setconfig 'valid_key' 'hello_world' "$TEST_CFG" && grep -qx 'valid_key=hello_world' "$TEST_CFG"; then
+    pass "setconfig 合法键值原子写入正常"
+else
+    fail "setconfig 合法写入失败"
+fi
+if ! setconfig 'bad;rm -rf /' 'x' "$TEST_CFG" && ! setconfig '123bad' 'x' "$TEST_CFG"; then
+    pass "setconfig 拦截非法键名注入"
+else
+    fail "setconfig 未拦截非法键名"
+fi
+NL_VAL=$(printf 'abc\nINJECTED=1')
+setconfig 'nl_key' "$NL_VAL" "$TEST_CFG"
+if ! grep -q '^INJECTED=' "$TEST_CFG"; then
+    pass "setconfig 剥离换行符防止多行配置注入"
+else
+    fail "setconfig 允许了换行符注入"
+fi
+if grep -q '"domain_resolver": "dns_proxy_server"' scripts/menus/providers_singbox.sh     && grep -q '"domain_resolver": "dns_proxy_server"' scripts/libs/local_sub_convert.sh; then
+    pass "providers_singbox 与 local_sub_convert 的 domain_resolver 为字面 tag"
+else
+    fail "domain_resolver 仍错误展开变量"
+fi
+if grep -q '127.0.0.1:\$db_port' scripts/starts/clash_modify.sh     && grep -q '127.0.0.1:\$db_port' scripts/starts/singbox_modify.sh; then
+    pass "纯净模式默认绑定 127.0.0.1 防止公网裸奔"
+else
+    fail "纯净模式绑定加固缺失"
+fi
+if grep -q 'shellcrash-update-branch' .github/workflows/core_easy_update.yaml     && grep -q 'git pull --rebase origin update' .github/workflows/update_meta_core.yaml     && grep -q 'git pull --rebase origin update' .github/workflows/update_singbox_core.yaml; then
+    pass "CI 并发锁与 rebase 防冲突推送已配置"
+else
+    fail "CI 并发锁配置不完整"
+fi
+
 if [ "$FAIL" -gt 0 ]; then
     printf '\n\033[31m失败 %d 项\033[0m\n' "$FAIL"
     exit 1

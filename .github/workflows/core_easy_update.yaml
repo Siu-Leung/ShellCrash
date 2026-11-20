@@ -8,6 +8,10 @@ on:
         required: true
         type: string
 
+concurrency:
+  group: shellcrash-update-branch
+  cancel-in-progress: false
+
 jobs:
   get_version:
     runs-on: ubuntu-latest

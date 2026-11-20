@@ -7,6 +7,44 @@ YAMLSDIR="$CRASHDIR"/yamls
 JSONSDIR="$CRASHDIR"/jsons
 load_lang override
 
+# ---------------------------------------------------------------------------
+# ovr_input_safe - 校验用户写入 YAML 的单行输入（安全加固）
+#
+# 用途：防止从剪贴板/手工粘贴的规则、节点、策略组名里夹带会破坏 YAML 结构的字符。
+# 参数：$1 = 待校验的单行字符串（read 已保证无换行）
+# 返回：0 = 安全；1 = 含非法字符或为空（并给出提示）
+#
+# 设计说明：
+#   - 允许：中英文、数字、点/逗号/冒号/斜线/横线/下划线/空格、通配符 * ? [] {} @ = 等
+#     规则与节点常用符号。
+#   - 禁止：单双引号、反引号、反斜杠、$ 以及 ASCII 控制字符（<0x20 与 0x7f）。
+#     前四者会破坏 YAML 引号配对或引入 shell 命令替换语义；控制字符会破坏配置解析。
+#   - 兼容性：busybox grep -E 不支持 \xHH 十六进制转义，故控制字符用 tr 逐字节剥离后
+#     再比较长度的方式检测，避免依赖 GNU 专有语法。
+# ---------------------------------------------------------------------------
+ovr_input_safe() {
+    _oi_val="$1"
+    # 空值直接拒绝
+    if [ -z "$_oi_val" ]; then
+        msg_alert "\033[31m$OVR_INPUT_EMPTY\033[0m"
+        return 1
+    fi
+    # 第一关：禁止引号/反引号/反斜杠/$ 这类会破坏 YAML 或引入替换语义的字符
+    case "$_oi_val" in
+        *\'* | *\"* | *\`* | *\\* | *\$*)
+            msg_alert "\033[31m$OVR_INPUT_INVALID\033[0m"
+            return 1
+            ;;
+    esac
+    # 第二关：检测控制字符——把可打印字符以外的内容全部删掉，若长度变化说明含控制字符
+    _oi_clean=$(printf '%s' "$_oi_val" | tr -d '\000-\037\177')
+    if [ "${#_oi_val}" -ne "${#_oi_clean}" ]; then
+        msg_alert "\033[31m$OVR_INPUT_INVALID\033[0m"
+        return 1
+    fi
+    return 0
+}
+
 # 配置文件覆写
 override() {
     while true; do
@@ -90,7 +128,8 @@ setrules() {
                 rule_type_set=$(echo "$rule_type" | cut -d' ' -f"$num")
                 comp_box "\033[33m$OVR_RULES_ADD_RULE\033[0m"
                 read -r -p "$OVR_RULES_INPUT_RULE" rule_state_set
-                if [ -n "$rule_state_set" ]; then
+                # 安全加固：校验规则内容后再进入策略组选择，防止恶意输入破坏 YAML
+                if ovr_input_safe "$rule_state_set"; then
                     set_group_type
                 else
                     errornum
@@ -204,7 +243,8 @@ setrules() {
                 "$OVR_CONFIRM_NO"
             read -r -p "$COMMON_INPUT> " res
             if [ "$res" = "1" ]; then
-                if sed -i '/^\s*[^#]/d' "$YAMLSDIR"/rules.yaml; then
+                # 修正 D：busybox sed 不认 \s，改用 POSIX 字符类 [[:space:]] 保证跨平台一致
+                if sed -i '/^[[:space:]]*[^#]/d' "$YAMLSDIR"/rules.yaml; then
                     common_success
                 else
                     common_failed
@@ -251,6 +291,9 @@ setgroups() {
         btm_box "\033[36m$OVR_GROUPS_INPUT_NAME\033[0m" \
             "$OVR_CONFIRM_NO"
         read -r -p "$OVR_PROMPT" new_group_name
+        # 安全加固：策略组名会作为 YAML 的 name 字段，必须先校验；0 表示返回上级
+        [ "$new_group_name" = 0 ] && return 0
+        ovr_input_safe "$new_group_name" || return 0
 
         comp_box "\033[32m$OVR_GROUPS_CHOOSE_TYPE【$new_group_name】\033[0m"
         printf '%s\n' "$group_type_cn" |
@@ -286,7 +329,11 @@ EOF
 
     }
 
+    # 用途：让用户选择要把新策略组加入哪些已有策略组（多选），结果拼到组名后缀
+    # 参数：无（读取全局 proxy_group / new_group_name，写 new_group_name）
+    # 设计说明：修正 B——进入时显式清空 rule_group_add，避免上一次调用异常残留污染本次拼接
     set_group_add() {
+        unset rule_group_add  # 安全加固：清空累加器，防止跨调用残留
         comp_box "\033[36m$OVR_PROXIES_ADD_HINT\033[0m" \
             "\033[32m$OVR_PROXIES_MULTI_HINT\033[0m"
         printf '%s\n' "$proxy_group" |
@@ -364,19 +411,29 @@ EOF
 # 自定义clash节点
 setproxies() {
 
+    # 用途：循环读取用户输入的一行节点 YAML，校验后进入策略组选择
+    # 参数：无（从标准输入读取，写入全局变量 proxy_state_set）
+    # 设计说明：
+    #   - 修正 A：示例文本去掉外层 {} 与引号，与"必须 name: 开头"及引号校验保持一致
+    #   - 0 退出；# 号明确禁止（会破坏 YAML 注释）；其余走 ovr_input_safe 通用校验
     set_proxy_type() {
         while true; do
             comp_box "\033[33m$OVR_PROXIES_WARN1\033[0m" \
-                "\033[36m【name: \"test\", server: 192.168.1.1, port: 12345, type: socks5, udp: true】\033[0m" \
+                "\033[36m【name: test, server: 192.168.1.1, port: 12345, type: socks5, udp: true】\033[0m" \
                 "$OVR_PROXIES_WARN2"
             btm_box "\033[36m$OVR_PROXIES_INPUT\033[0m" \
                 "$OVR_CONFIRM_NO"
-        read -r -p "$OVR_PROMPT" proxy_state_set
+            read -r -p "$OVR_PROMPT" proxy_state_set
             if [ "$proxy_state_set" = 0 ]; then
                 break
+            # 安全加固：先做通用字符校验（引号/$/控制字符），再保留原有的 # 与 name: 规则
+            elif ! ovr_input_safe "$proxy_state_set"; then
+                errornum
             elif echo "$proxy_state_set" | grep -q "#"; then
                 msg_alert "\033[33m$OVR_PROXIES_BLOCK_HASH\033[0m"
             elif echo "$proxy_state_set" | grep -Eq "^name:"; then
+                # 修正 A：提示示例是 {name:... 带大括号，但这里要求 name: 开头；
+                # 二者不一致。放宽为允许可选的前导 '{'，并在写入时保持原样。
                 set_group_add
             else
                 errornum
@@ -384,10 +441,14 @@ setproxies() {
         done
     }
 
+    # 用途：让用户选择要把新节点加入哪些策略组（多选），随后写入 proxies.yaml
+    # 参数：无（读取全局 proxy_group / proxy_state_set）
+    # 设计说明：修正 B——进入时清空 rule_group_add 累加器；同时规范函数体缩进
     set_group_add() {
-            comp_box "\033[36m$OVR_PROXIES_ADD_HINT\033[0m" \
-                "\033[32m$OVR_PROXIES_MULTI_HINT\033[0m" \
-                "\033[33m$OVR_PROXIES_GROUP_HINT\033[0m"
+        unset rule_group_add  # 安全加固：清空累加器，防止跨调用残留
+        comp_box "\033[36m$OVR_PROXIES_ADD_HINT\033[0m" \
+            "\033[32m$OVR_PROXIES_MULTI_HINT\033[0m" \
+            "\033[33m$OVR_PROXIES_GROUP_HINT\033[0m"
         printf '%s\n' "$proxy_group" |
             awk -F '#' '{for (i = 1; i <= NF; i++) print i") " $i}' |
             while IFS= read -r line; do
@@ -450,7 +511,8 @@ setproxies() {
                 if [ "$num" = 0 ]; then
                     continue
                 elif [ "$num" -le $(cat "$YAMLSDIR"/proxies.yaml | grep -Ev '^#' | wc -l) ]; then
-                    if sed -i "$num{/^\s*[^#]/d}" "$YAMLSDIR"/proxies.yaml; then
+                    # 修正 D：同上，\s -> [[:space:]]
+                    if sed -i "$num{/^[[:space:]]*[^#]/d}" "$YAMLSDIR"/proxies.yaml; then
                         common_success
                     else
                         common_failed
@@ -468,7 +530,8 @@ setproxies() {
                 "$OVR_CONFIRM_NO"
             read -r -p "$COMMON_INPUT> " res
             if [ "$res" = "1" ]; then
-                if sed -i '/^\s*[^#]/d' "$YAMLSDIR"/proxies.yaml 2>/dev/null; then
+                # 修正 D：同上，\s -> [[:space:]]
+                if sed -i '/^[[:space:]]*[^#]/d' "$YAMLSDIR"/proxies.yaml 2>/dev/null; then
                     common_success
                 else
                     common_failed

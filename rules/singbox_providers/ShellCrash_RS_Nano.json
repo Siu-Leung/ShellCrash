@@ -18,14 +18,14 @@
         "type": "remote",
         "format": "binary",
         "path": "./ruleset/cn.srs",
-        "url": "https://cdn.jsdelivr.net/gh/DustinWin/ruleset_geodata@sing-box-ruleset/cn.srs"
+        "url": "https://cdn.jsdelivr.net/gh/Siu-Leung/ShellCrash@update/bin/geodata/srs_geosite_cn.srs"
       },
       {
         "tag": "cnip",
         "type": "remote",
         "format": "binary",
         "path": "./ruleset/cnip.srs",
-        "url": "https://cdn.jsdelivr.net/gh/DustinWin/ruleset_geodata@sing-box-ruleset/cnip.srs"
+        "url": "https://cdn.jsdelivr.net/gh/Siu-Leung/ShellCrash@update/bin/geodata/srs_geoip_cn.srs"
       }
     ],
     "final": "🚀 节点选择"

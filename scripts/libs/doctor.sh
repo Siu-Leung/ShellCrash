@@ -1,0 +1,104 @@
+#!/bin/sh
+# doctor.sh —— ShellCrash Linux 代理一键健康自检（纯只读，不修改任何系统或配置文件）
+
+run_doctor() {
+    [ -z "$CRASHDIR" ] && CRASHDIR=$(cd "$(dirname "$0")/.." && pwd)
+    [ -f "$CRASHDIR/libs/get_config.sh" ] && . "$CRASHDIR/libs/get_config.sh" 2>/dev/null
+
+    _doc_ok()   { printf '  [\033[32mOK\033[0m]   %s\n' "$1"; }
+    _doc_warn() { printf '  [\033[33mWARN\033[0m] %s\n' "$1"; }
+    _doc_info() { printf '  [INFO] %s\n' "$1"; }
+
+    echo "==============================================="
+    printf '\033[36mShellCrash 运行环境与安全健康自检 (doctor)\033[0m\n'
+    echo "==============================================="
+
+    # 1. 版本与供应链
+    _doc_info "脚本版本: ${versionsh_l:-unknown} | 内核: ${crashcore:-unset} (${core_v:-unknown}) | 架构: ${cpucore:-unset}"
+    _doc_info "安装目录: $CRASHDIR | 数据目录: ${BINDIR:-$CRASHDIR} | 缓存目录: ${TMPDIR:-/tmp/ShellCrash}"
+    if [ "${release_type:-dev}" = "dev" ]; then
+        _doc_ok "更新分支已锁定加固版 dev (url_id=${url_id:-custom})"
+    else
+        _doc_warn "当前 release_type=${release_type} 非 dev，建议在 9->7 切回加固版 dev"
+    fi
+
+    # 2. 进程与运行模式
+    _pid=$(pidof CrashCore 2>/dev/null | awk '{print $NF}')
+    if [ -n "$_pid" ]; then
+        _rss=$(awk '/^VmRSS:/ {printf "%.1f MB", $2/1024}' "/proc/$_pid/status" 2>/dev/null)
+        _doc_ok "CrashCore 运行中 (PID=$_pid, RSS=${_rss:-unknown})"
+    else
+        _doc_warn "CrashCore 当前未运行"
+    fi
+    _doc_info "代理模式: redir_mod=${redir_mod:-unset} | firewall_area=${firewall_area:-unset} | firewall_mod=${firewall_mod:-unset} | dns_mod=${dns_mod:-unset}"
+
+    # 3. 安全策略与监听边界
+    if [ "${skip_cert:-OFF}" = "OFF" ]; then
+        _doc_ok "TLS 证书校验已开启 (skip_cert=OFF)"
+    else
+        _doc_warn "TLS 证书校验已关闭 (skip_cert=$skip_cert)，存在中间人风险"
+    fi
+    if [ "$firewall_area" = "4" ] && [ "$public_support" != "ON" ]; then
+        _doc_ok "纯净模式监听已收敛至 127.0.0.1 (mix=$mix_port, panel=$db_port)"
+    else
+        if [ -n "$secret" ]; then
+            _doc_ok "面板监听端口 $db_port 已设置访问密钥"
+        else
+            _doc_warn "面板监听端口 $db_port 未设置访问密钥 (secret 为空)"
+        fi
+    fi
+
+    # 4. 本地订阅与配置状态
+    _prov_cnt=0
+    [ -s "$CRASHDIR/configs/providers.cfg" ] && _prov_cnt=$(grep -cvE '^[[:space:]]*(#|$)' "$CRASHDIR/configs/providers.cfg" 2>/dev/null || echo 0)
+    _uri_cnt=0
+    [ -s "$CRASHDIR/configs/providers_uri.cfg" ] && _uri_cnt=$(grep -cvE '^[[:space:]]*(#|$)' "$CRASHDIR/configs/providers_uri.cfg" 2>/dev/null || echo 0)
+    _local_files=0
+    if [ -d "$CRASHDIR/providers" ]; then
+        _local_files=$(find "$CRASHDIR/providers" -maxdepth 1 -type f 2>/dev/null | wc -l | tr -d ' ')
+    fi
+    if [ "$local_sub" = "ON" ]; then
+        _doc_ok "零外泄本地拉取转换已启用 (订阅=$_prov_cnt, 单节点=$_uri_cnt, 本地缓存文件=$_local_files)"
+    else
+        _doc_info "订阅提供者: 订阅=$_prov_cnt, 单节点=$_uri_cnt, 本地缓存文件=$_local_files (local_sub=${local_sub:-OFF})"
+    fi
+    if echo "$crashcore" | grep -q 'singbox'; then
+        _cfg="$CRASHDIR/jsons/config.json"
+    else
+        _cfg="$CRASHDIR/yamls/config.yaml"
+    fi
+    if [ -s "$_cfg" ]; then
+        _doc_ok "内核配置文件就绪: $_cfg"
+    else
+        _doc_warn "未检测到内核配置文件: $_cfg"
+    fi
+
+    # 5. Linux 网络栈与核心依赖
+    if [ -r /proc/sys/net/ipv4/ip_forward ]; then
+        _ipf=$(cat /proc/sys/net/ipv4/ip_forward 2>/dev/null)
+        if [ "$_ipf" = "1" ]; then
+            _doc_ok "IPv4 转发已开启 (net.ipv4.ip_forward=1)"
+        elif [ "$firewall_area" = "1" ] || [ "$firewall_area" = "3" ]; then
+            _doc_warn "透明代理模式下 net.ipv4.ip_forward=$_ipf（应为 1）"
+        else
+            _doc_info "net.ipv4.ip_forward=$_ipf"
+        fi
+    fi
+    if [ -c /dev/net/tun ]; then
+        _doc_ok "/dev/net/tun 设备可用"
+    elif [ "$redir_mod" = "Tun" ] || [ "$redir_mod" = "Mix" ]; then
+        _doc_warn "当前模式 $redir_mod 需要 TUN，但未检测到 /dev/net/tun"
+    fi
+
+    _missing=""
+    for _cmd in curl wget base64 awk sed; do
+        command -v "$_cmd" >/dev/null 2>&1 || _missing="$_missing $_cmd"
+    done
+    if [ -z "$_missing" ]; then
+        _doc_ok "基础工具链完整 (curl/wget/base64/awk/sed)"
+    else
+        _doc_info "未安装的可选/基础命令:$_missing"
+    fi
+    echo "==============================================="
+    return 0
+}

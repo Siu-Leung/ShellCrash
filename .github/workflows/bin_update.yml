@@ -153,6 +153,8 @@ jobs:
 
     - name: Rebuild update branch with no history
       run: |
+        # 清理上游已停更的历史旧版 clash(v1.7.1) 与 hfs.exe 残留，保证 update 分支 100% 自主构建
+        rm -rf bin/clash bin/hfs
         # 彻底删除历史记录
         rm -rf .git
         # 重新初始化仓库

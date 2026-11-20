@@ -77,6 +77,7 @@ export url='https://cdn.jsdelivr.net/gh/Siu-Leung/ShellCrash@dev' \
 
 ```sh
 crash        # 启动交互管理菜单
+crash doctor # 一键环境与安全健康自检（只读）
 crash -h     # 查看命令行帮助
 ```
 

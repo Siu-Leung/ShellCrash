@@ -265,7 +265,7 @@ EOF
         fi
     else
         if [ -s "$CRASHDIR/configs/providers.cfg" ]; then
-            while read -r _p_name _p_link _p_int _p_int2 _p_ua _p_exc _p_inc; do
+            while read -r _p_name _p_link _p_int _p_int2 _p_ua _p_exc _p_inc || [ -n "$_p_name" ]; do
                 [ -z "$_p_name" ] && continue
                 case "$_p_name" in \#*) continue ;; esac
                 _p_exc=${_p_exc#\#}
@@ -406,7 +406,7 @@ EOF
         fi
     else
         if [ -s "$CRASHDIR/configs/providers.cfg" ]; then
-            while read -r _p_name _p_link _p_int _p_int2 _p_ua _p_exc _p_inc; do
+            while read -r _p_name _p_link _p_int _p_int2 _p_ua _p_exc _p_inc || [ -n "$_p_name" ]; do
                 [ -z "$_p_name" ] && continue
                 case "$_p_name" in \#*) continue ;; esac
                 _p_exc=${_p_exc#\#}

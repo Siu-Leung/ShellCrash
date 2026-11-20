@@ -104,7 +104,7 @@ set_udp_buffer_limit
 [ -s "$TASKCFGDIR"/bfstart ] && . "$TASKCFGDIR"/bfstart
 #检查内核配置文件
 if [ ! -f "$core_config" ]; then
-    if [ -n "$Url" -o -n "$Https" ]; then
+    if [ -n "$Url" -o -n "$Https" -o "$local_sub" = "ON" ]; then
         logger "未找到配置文件，正在下载！" 33
         . "$CRASHDIR"/starts/core_config.sh && get_core_config
     else

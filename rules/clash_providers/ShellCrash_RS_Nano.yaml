@@ -8,7 +8,7 @@ rule-providers:
     behavior: domain
     format: mrs
     path: ./ruleset/cn.mrs
-    url: "https://cdn.jsdelivr.net/gh/DustinWin/ruleset_geodata@mihomo-ruleset/cn.mrs"
+    url: "https://cdn.jsdelivr.net/gh/Siu-Leung/ShellCrash@update/bin/geodata/mrs_geosite_cn.mrs"
     interval: 86400
   privateip:
     type: http

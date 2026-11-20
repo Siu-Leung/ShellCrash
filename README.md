@@ -75,6 +75,7 @@ export url='https://cdn.jsdelivr.net/gh/Siu-Leung/ShellCrash@dev' \
 
 ```sh
 crash        # Launch interactive menu
+crash doctor # Read-only environment & security health check
 crash -h     # Show CLI help
 ```
 

@@ -62,7 +62,7 @@ update_core(){ #自动更新内核
 update_scripts(){ #自动更新脚本
     #检查版本
     check_update version
-    if [ -z "$versionsh" -o "$versionsh" = "versionsh_l" ];then
+    if [ -z "$versionsh" -o "$versionsh" = "$versionsh_l" ];then
         task_logger "$TASK_CMD_SCRIPT_SKIP"
         return 0
     else
@@ -131,14 +131,22 @@ web_save_auto(){
     . "$CRASHDIR"/libs/web_save.sh && web_save
 }
 update_config() { #更新订阅并重启
-    . "$CRASHDIR"/starts/core_config.sh get_core_config && "$CRASHDIR"/start.sh start
+    # 修复：补齐 && 以真正调用 get_core_config，并用 restart 使新配置生效
+    . "$CRASHDIR"/starts/core_config.sh && get_core_config && "$CRASHDIR"/start.sh restart
 }
 hotupdate() { #热更新订阅
-    . "$CRASHDIR"/starts/core_config.sh && get_core_config &&
+    . "$CRASHDIR"/starts/core_config.sh && get_core_config || exit 1
+    if echo "$crashcore" | grep -q 'singbox'; then
+        # Sing-Box 不支持 Clash PUT /configs 热重载，自动降级为平滑重启
+        "$CRASHDIR"/start.sh restart
+        exit $?
+    fi
     . "$CRASHDIR"/starts/check_core.sh && check_core &&
-    . "$CRASHDIR"/starts/"$target"_modify.sh && modify_"$format" && rm -rf "$TMPDIR"/CrashCore &&
-    . "$CRASHDIR"/libs/web_restore.sh && put_save "http://127.0.0.1:$db_port/configs" "{\"path\":\"$CRASHDIR/config.$format\"}"
-    exit $?
+    . "$CRASHDIR"/starts/"$target"_modify.sh && modify_"$format" &&
+    . "$CRASHDIR"/libs/web_restore.sh && put_save "http://127.0.0.1:$db_port/configs" "{\"path\":\"$BINDIR/config.$format\"}"
+    _rc=$?
+    [ "$start_old" = "ON" ] && [ ! -L "$TMPDIR"/CrashCore ] && rm -f "$TMPDIR"/CrashCore
+    exit "$_rc"
 }
 
 case "$1" in

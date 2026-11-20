@@ -337,6 +337,9 @@ case "$1" in
 -u)
     . "$CRASHDIR"/menus/uninstall.sh && uninstall
     ;;
+doctor | check | -c)
+    . "$CRASHDIR"/libs/doctor.sh && run_doctor
+    ;;
 *)
     comp_box "$MENU_WELCOME"
     content_line "-t $MENU_CLI_TEST"
@@ -347,6 +350,7 @@ case "$1" in
     separator_line "-"
     content_line "crash -s start	$MENU_CLI_START"
     content_line "crash -s stop	$MENU_CLI_STOP"
+    content_line "crash doctor	运行环境与安全健康自检"
     # 去原作者化：帮助页不再展示上游 TG/博客/仓库引流，仅保留命令帮助
     content_line "$CRASHDIR/start.sh init $MENU_CLI_BOOT_INIT"
     separator_line "="

@@ -184,6 +184,48 @@ else
     fail "CI 并发锁配置不完整"
 fi
 
+
+echo "== 6. P0 逻辑修复与 P1 doctor 诊断回归 =="
+if sh -n scripts/libs/doctor.sh && sh -n scripts/menu.sh && sh -n scripts/menus/task_cmd.sh; then
+    pass "sh -n doctor.sh / menu.sh / task_cmd.sh"
+else
+    fail "syntax error in doctor/menu/task_cmd"
+fi
+if grep -q '"\$versionsh" = "\$versionsh_l"' scripts/menus/task_cmd.sh     && grep -q 'core_config.sh && get_core_config && "\$CRASHDIR"/start.sh restart' scripts/menus/task_cmd.sh     && grep -q '\$BINDIR/config.\$format' scripts/menus/task_cmd.sh; then
+    pass "task_cmd.sh 104/105/112 定时与热更新逻辑已修复"
+else
+    fail "task_cmd.sh 修复缺失"
+fi
+if grep -q '"\$local_sub" = "ON"' scripts/starts/bfstart.sh; then
+    pass "bfstart.sh 已兼容 local_sub=ON 自动重建"
+else
+    fail "bfstart.sh 缺少 local_sub=ON 判断"
+fi
+if ! grep -q '\[ -n "\$2" \]' scripts/menus/6_core_config.sh; then
+    pass "6_core_config.sh 单订阅菜单已基于 \$link/\$link_uri 动态显示"
+else
+    fail "6_core_config.sh 仍依赖 \$2"
+fi
+# 测试 providers.cfg 最后一行无尾随换行符不漏读
+printf 'NoNL https://sub.example.invalid/nonl 3 12 clash.meta # #' >"$CRASHDIR/configs/providers.cfg"
+rm -f "$CRASHDIR/configs/providers_uri.cfg"
+if local_build_clash_config && grep -q 'path: "./providers/NoNL.txt"' "$CRASHDIR/yamls/config.yaml"; then
+    pass "providers.cfg 末尾无换行符不漏读最后一条订阅"
+else
+    fail "providers.cfg 末尾无换行符解析失败"
+fi
+# 测试 doctor.sh 只读运行
+if (. ./scripts/libs/doctor.sh && run_doctor | grep -q 'TLS 证书校验已开启'); then
+    pass "doctor.sh 健康自检正常输出"
+else
+    fail "doctor.sh 运行失败"
+fi
+if grep -q 'Siu-Leung/ShellCrash@update/bin/geodata/mrs_geosite_cn.mrs' rules/clash_providers/ShellCrash_RS_Nano.yaml     && grep -q 'Siu-Leung/ShellCrash@update/bin/geodata/srs_geosite_cn.srs' rules/singbox_providers/ShellCrash_RS_Nano.json; then
+    pass "默认 Nano 规则模板已指向本仓库 update 分支规则"
+else
+    fail "默认 Nano 规则模板未自有化"
+fi
+
 if [ "$FAIL" -gt 0 ]; then
     printf '\n\033[31m失败 %d 项\033[0m\n' "$FAIL"
     exit 1

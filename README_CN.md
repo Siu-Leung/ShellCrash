@@ -4,8 +4,8 @@
   <a target="_blank" href="https://github.com/MetaCubeX/mihomo/releases">
     <img src="https://img.shields.io/github/release/MetaCubeX/mihomo.svg?style=flat-square&label=Core">
   </a>
-  <a target="_blank" href="https://github.com/juewuy/ShellCrash/releases">
-    <img src="https://img.shields.io/github/release/juewuy/ShellCrash.svg?style=flat-square&label=ShellCrash&colorB=green">
+  <a target="_blank" href="https://github.com/Siu-Leung/ShellCrash/releases">
+    <img src="https://img.shields.io/github/release/Siu-Leung/ShellCrash.svg?style=flat-square&label=ShellCrash&colorB=green">
   </a>
 </p>
 
@@ -38,7 +38,7 @@ ShellCrash 旨在兼容绝大多数基于 Linux 内核的网络设备：
 * **其他设备**：兼容各种基于Linux/GNU或者Linux/busybox开发的设备。
 * **Docker**：部分可能不兼容的设备（如群辉、PVE），支持docker环境运行。
 
-> 更多设备支持，请提交 [Issue](https://github.com/juewuy/ShellCrash/issues) 或前往 [Telegram 群组](https://t.me/ShellClash) 反馈（请附上设备型号及 `uname -a` 命令的输出信息）。
+> 更多设备支持，请提交 [Issue](https://github.com/Siu-Leung/ShellCrash/issues) 反馈（请附上设备型号及 `uname -a` 命令的输出信息）。
 
 ---
 
@@ -58,7 +58,7 @@ ShellCrash 旨在兼容绝大多数基于 Linux 内核的网络设备：
 
 > 使用 wget 安装（jsDelivr CDN 源）
 ```sh
-export url='https://testingcf.jsdelivr.net/gh/juewuy/ShellCrash@master' \
+export url='https://cdn.jsdelivr.net/gh/Siu-Leung/ShellCrash@dev' \
   && wget -q --no-check-certificate -O /tmp/install.sh $url/install.sh \
   && bash /tmp/install.sh \
   && . /etc/profile &> /dev/null
@@ -69,7 +69,7 @@ export url='https://testingcf.jsdelivr.net/gh/juewuy/ShellCrash@master' \
 **使用 `curl` 安装：**
 > GitHub 源（推荐海外环境或具备代理环境使用）
 ```sh
-export url='https://raw.githubusercontent.com/juewuy/ShellCrash/master' \
+export url='https://raw.githubusercontent.com/Siu-Leung/ShellCrash/dev' \
   && sh -c "$(curl -kfsSl $url/install.sh)" \
   && . /etc/profile &> /dev/null
 ```
@@ -77,7 +77,7 @@ export url='https://raw.githubusercontent.com/juewuy/ShellCrash/master' \
 > 或 jsDelivr CDN 源
 
 ```sh
-export url='https://testingcf.jsdelivr.net/gh/juewuy/ShellCrash@master' \
+export url='https://cdn.jsdelivr.net/gh/Siu-Leung/ShellCrash@dev' \
   && sh -c "$(curl -kfsSl $url/install.sh)" \
   && . /etc/profile &> /dev/null
 ```
@@ -85,7 +85,7 @@ export url='https://testingcf.jsdelivr.net/gh/juewuy/ShellCrash@master' \
 **使用 `wget` 安装：**
 > GitHub 源（推荐海外环境或具备代理环境使用）
 ```sh
-export url='https://raw.githubusercontent.com/juewuy/ShellCrash/master' \
+export url='https://raw.githubusercontent.com/Siu-Leung/ShellCrash/dev' \
   && wget -q --no-check-certificate -O /tmp/install.sh $url/install.sh \
   && sh /tmp/install.sh \
   && . /etc/profile &> /dev/null
@@ -93,7 +93,7 @@ export url='https://raw.githubusercontent.com/juewuy/ShellCrash/master' \
 
 > 或 jsDelivr CDN 源
 ```sh
-export url='https://testingcf.jsdelivr.net/gh/juewuy/ShellCrash@master' \
+export url='https://cdn.jsdelivr.net/gh/Siu-Leung/ShellCrash@dev' \
   && wget -q --no-check-certificate -O /tmp/install.sh $url/install.sh \
   && sh /tmp/install.sh \
   && . /etc/profile &> /dev/null
@@ -109,7 +109,7 @@ export url='https://testingcf.jsdelivr.net/gh/juewuy/ShellCrash@master' \
 apk add --no-cache wget openrc ca-certificates tzdata nftables iproute2 dcron
 
 # 执行安装命令
-export url='https://testingcf.jsdelivr.net/gh/juewuy/ShellCrash@master' \
+export url='https://cdn.jsdelivr.net/gh/Siu-Leung/ShellCrash@dev' \
   && wget -q --no-check-certificate -O /tmp/install.sh $url/install.sh \
   && sh /tmp/install.sh \
   && . /etc/profile &> /dev/null
@@ -117,16 +117,12 @@ export url='https://testingcf.jsdelivr.net/gh/juewuy/ShellCrash@master' \
 
  ### :whale: Docker 
 
- 请访问官方 Docker 镜像：
-
-- [ShellCrash on Docker Hub](https://hub.docker.com/r/juewuy/shellcrash)
+ 请从本仓库 `docker/` 目录自行构建 Docker 镜像。
 
 
 ### :package: 本地安装
 
-若无法进行在线安装，请参照以下指南执行本地安装：
-
-- [本地安装ShellCrash教程 | Juewuy's Blog](https://juewuy.github.io/bdaz)
+若无法进行在线安装，请从本仓库 `update` 分支下载 `ShellCrash.tar.gz` 并按 README 中的本地安装步骤操作。
 
 ---
 
@@ -151,18 +147,10 @@ crash -h     # 查看命令帮助列表
 ---
 
 ## :link: 相关链接
-- 常见问题：[Juewuy's Blog](https://juewuy.github.io/chang-jian-wen-ti/)
-- 更新日志：[Release History](https://github.com/juewuy/ShellCrash/releases)
-- 交流反馈：[Telegram 讨论组](https://t.me/ShellClash)
+- 更新日志：[Release History](https://github.com/Siu-Leung/ShellCrash/releases)
 
 ---
 
 ## :scroll: 许可协议
 
 本项目采用[GNU通用公共许可证第3.0版](LICENSE.txt)授权。
-
----
-
-## :airplane: 机场推荐
-
-- [**大米**](https://1s.bigmeok.me/user#/register?code=2PuWY9I7)，群友力荐，流媒体解锁，月付推荐。

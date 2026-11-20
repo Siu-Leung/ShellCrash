@@ -99,7 +99,7 @@ run_case() (
         devnull) target=/dev/null ;;
     esac
     url=http://example.invalid/file
-    [ "$big" = 1 ] && url=https://testingcf.jsdelivr.net/gh/juewuy/ShellCrash@update/bin/file
+    [ "$big" = 1 ] && url=https://cdn.jsdelivr.net/gh/Siu-Leung/ShellCrash@update/bin/file
     if webget "$target" "$url" echoon 2>/dev/null; then rc=0; else rc=$?; fi
     [ "$rc" = "$expected_rc" ] || fail "expected rc=$expected_rc, got rc=$rc"
     case "$expected_target" in

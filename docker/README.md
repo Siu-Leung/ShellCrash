@@ -108,7 +108,7 @@ cd /tmp/ShellCrash
 ### 2. 下载Compose模版
 
 ```shell
-curl -sSL https://testingcf.jsdelivr.net/gh/juewuy/ShellCrash@dev/docker/compose.yml -O
+curl -sSL https://cdn.jsdelivr.net/gh/Siu-Leung/ShellCrash@dev/docker/compose.yml -O
 ```
 
 ### 3. 根据本地环境修改Compose模版

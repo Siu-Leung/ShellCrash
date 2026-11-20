@@ -68,7 +68,8 @@ OVR_PROXIES_MANAGE="2) Manage custom nodes"
 OVR_PROXIES_CLEAR="3) Clear custom nodes"
 OVR_PROXIES_BYPASS="4) Configure node bypass:"
 OVR_PROXIES_WARN1="Note\nThe node format must be a single line, without parentheses, and start with \"name:\", for example:"
-OVR_PROXIES_WARN2="For more formats, see: \033[32mhttps://juewuy.github.io/\033[0m"
+# 去原作者化：移除上游博客链接，保留格式提示语义
+OVR_PROXIES_WARN2="For more formats, see the project documentation:"
 OVR_PROXIES_INPUT="Please enter the custom node directly"
 OVR_PROXIES_BLOCK_HASH="Absolutely no [#] character is allowed!"
 OVR_PROXIES_ADD_HINT="Please choose the proxy group to add the node to"
@@ -92,4 +93,5 @@ OVR_ADV_LIN="On Linux, you can use \033[33mvim\033[0m to edit it (do not use it 
 OVR_SING_TITLE1="Supported modules that can override script settings:"
 OVR_SING_TITLE2="Modules that can be merged with built-in features (but must not conflict):"
 OVR_SING_TITLE3="Place the corresponding JSON files into the \033[33m$JSONSDIR\033[0m directory to load them automatically at startup"
-OVR_SING_TITLE4="Be sure to read the configuration guide before use: \033[32;4m https://juewuy.github.io/nWTjEpkSK \033[0m"
+# 去原作者化：移除上游博客教程链接，保留使用前查阅文档提示
+OVR_SING_TITLE4="Be sure to read the project documentation before use:"

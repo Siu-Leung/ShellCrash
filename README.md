@@ -4,8 +4,8 @@
   <a target="_blank" href="https://github.com/MetaCubeX/mihomo/releases">
     <img src="https://img.shields.io/github/release/MetaCubeX/mihomo.svg?style=flat-square&label=Core">
   </a>
-  <a target="_blank" href="https://github.com/juewuy/ShellCrash/releases">
-    <img src="https://img.shields.io/github/release/juewuy/ShellCrash.svg?style=flat-square&label=ShellCrash&colorB=green">
+  <a target="_blank" href="https://github.com/Siu-Leung/ShellCrash/releases">
+    <img src="https://img.shields.io/github/release/Siu-Leung/ShellCrash.svg?style=flat-square&label=ShellCrash&colorB=green">
   </a>
 </p>
 
@@ -38,7 +38,7 @@ ShellCrash is designed to be compatible with the vast majority of network device
 * **Other Devices**: Compatible with other devices based on Linux/GNU or Linux/busybox.
 * **Docker**：Compatible with Docker environments (e.g., Synology, PVE, etc.).
 
-> For additional device support, please submit an [Issue](https://github.com/juewuy/ShellCrash/issues) or provide feedback in the [Telegram Group](https://t.me/ShellClash) (please include the device model and the output of the `uname -a` command).
+> For additional device support, please submit an [Issue](https://github.com/Siu-Leung/ShellCrash/issues) (please include the device model and the output of the `uname -a` command).
 
 ---
 
@@ -58,7 +58,7 @@ ShellCrash is designed to be compatible with the vast majority of network device
 
 > Install via wget (jsDelivr CDN source)
 ```sh
-export url='https://testingcf.jsdelivr.net/gh/juewuy/ShellCrash@dev' \
+export url='https://cdn.jsdelivr.net/gh/Siu-Leung/ShellCrash@dev' \
   && wget -q --no-check-certificate -O /tmp/install.sh $url/install_en.sh \
   && bash /tmp/install.sh \
   && . /etc/profile &> /dev/null
@@ -69,7 +69,7 @@ export url='https://testingcf.jsdelivr.net/gh/juewuy/ShellCrash@dev' \
 **Installation via `curl`:**
 > GitHub Source (Recommended for overseas environments or environments with proxy access)
 ```sh
-export url='https://raw.githubusercontent.com/juewuy/ShellCrash/dev' \
+export url='https://raw.githubusercontent.com/Siu-Leung/ShellCrash/dev' \
   && sh -c "$(curl -kfsSl $url/install_en.sh)" \
   && . /etc/profile &> /dev/null
 ```
@@ -77,7 +77,7 @@ export url='https://raw.githubusercontent.com/juewuy/ShellCrash/dev' \
 > Or jsDelivr CDN source
 
 ```sh
-export url='https://testingcf.jsdelivr.net/gh/juewuy/ShellCrash@dev' \
+export url='https://cdn.jsdelivr.net/gh/Siu-Leung/ShellCrash@dev' \
   && sh -c "$(curl -kfsSl $url/install_en.sh)" \
   && . /etc/profile &> /dev/null
 ```
@@ -85,7 +85,7 @@ export url='https://testingcf.jsdelivr.net/gh/juewuy/ShellCrash@dev' \
 **Installation via `wget`:**
 > GitHub Source (Recommended for overseas environments or environments with proxy access)
 ```sh
-export url='https://raw.githubusercontent.com/juewuy/ShellCrash/dev' \
+export url='https://raw.githubusercontent.com/Siu-Leung/ShellCrash/dev' \
   && wget -q --no-check-certificate -O /tmp/install.sh $url/install_en.sh \
   && sh /tmp/install.sh \
   && . /etc/profile &> /dev/null
@@ -93,7 +93,7 @@ export url='https://raw.githubusercontent.com/juewuy/ShellCrash/dev' \
 
 > Or jsDelivr CDN source
 ```sh
-export url='https://testingcf.jsdelivr.net/gh/juewuy/ShellCrash@dev' \
+export url='https://cdn.jsdelivr.net/gh/Siu-Leung/ShellCrash@dev' \
   && wget -q --no-check-certificate -O /tmp/install.sh $url/install_en.sh \
   && sh /tmp/install.sh \
   && . /etc/profile &> /dev/null
@@ -108,7 +108,7 @@ export url='https://testingcf.jsdelivr.net/gh/juewuy/ShellCrash@dev' \
 # Install necessary dependencies
 apk add --no-cache wget openrc ca-certificates tzdata nftables iproute2 dcron
 # Execute installation command
-export url='https://testingcf.jsdelivr.net/gh/juewuy/ShellCrash@dev' \
+export url='https://cdn.jsdelivr.net/gh/Siu-Leung/ShellCrash@dev' \
   && wget -q --no-check-certificate -O /tmp/install.sh $url/install_en.sh \
   && sh /tmp/install.sh \
   && . /etc/profile &> /dev/null
@@ -116,16 +116,12 @@ export url='https://testingcf.jsdelivr.net/gh/juewuy/ShellCrash@dev' \
 
  ### :whale: Docker 
 
- Please visit the official Docker image:
-
-- [ShellCrash on Docker Hub](https://hub.docker.com/r/juewuy/shellcrash)
+ Build the Docker image from this repository (see `docker/` for details).
 
 
 ### :package: Local Installation
 
-If online installation is not possible, please follow the guide for local installation:
-
-- [Local ShellCrash Installation Tutorial | Juewuy's Blog](https://juewuy.github.io/bdaz)
+If online installation is not possible, download `ShellCrash.tar.gz` from this repository's `update` branch and follow the local installation steps in the README.
 
 ---
 
@@ -150,9 +146,7 @@ crash -h     # View the list of command help
 ---
 
 ## :link: Related Links
-- FAQ: [Juewuy's Blog](https://juewuy.github.io/chang-jian-wen-ti/)
-- Changelog: [Release History](https://github.com/juewuy/ShellCrash/releases)
-- Discussion: [Telegram Group](https://t.me/ShellClash)
+- Changelog: [Release History](https://github.com/Siu-Leung/ShellCrash/releases)
 
 ## :scroll: License
 

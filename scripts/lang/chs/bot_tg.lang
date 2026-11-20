@@ -1,7 +1,7 @@
 BOT_TG_PRIVATE_HINT="请先通过 \033[32;4mhttps://t.me/BotFather\033[0m 申请TG机器人并获取其\033[36mAPI TOKEN\033[0m"
 BOT_TG_INPUT_TOKEN="请输入你获取到的API TOKEN"
 BOT_TG_PRIVATE_TOP="请向\033[32m你申请的机器人\033[33m而不是BotFather！\033[0m"
-BOT_TG_PUBLIC_HINT="请向机器人：\033[32;4mhttps://t.me/ShellCrashtg_bot\033[0m"
+# 去原作者化：上游公共机器人已停用，仅保留私人机器人提示
 BOT_TG_PUBLIC_DISABLED="公共机器人中转已移除（安全加固版），请使用私人机器人。"
 BOT_TG_SET_DONE="已完成Telegram日志推送设置！"
 BOT_TG_CHATID_RETRY_PREFIX="第"
@@ -15,11 +15,8 @@ BOT_TG_INPUT_CHATID="请手动输入ChatID"
 BOT_TG_CHATID_RECONFIG="无法获取对话ID，请重新配置！"
 BOT_TG_CRON_NAME="TG_BOT守护进程"
 
-BOT_TG_HELP_GROUP="进群讨论："
-BOT_TG_HELP_PROJECT="项目地址："
-BOT_TG_HELP_GUIDE="相关教程："
-BOT_TG_HELP_COFFEE="请喝咖啡："
-BOT_TG_HELP_AIRPORT="友情机场："
+# 去原作者化：机器人帮助仅保留功能说明，不再展示上游群/项目/教程引流
+BOT_TG_HELP_BASIC="功能：查看运行状态、启停服务、上传/下载配置与日志文件。通过下方按钮选择操作："
 BOT_TG_RUN_ON="🟢正在运行"
 BOT_TG_RUN_OFF="🟡未运行"
 BOT_TG_WELCOME="欢迎使用ShellCrash！"

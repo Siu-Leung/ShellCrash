@@ -1,7 +1,7 @@
 BOT_TG_PRIVATE_HINT="Please apply for a Telegram bot via \033[32;4mhttps://t.me/BotFather\033[0m and get its \033[36mAPI TOKEN\033[0m first"
 BOT_TG_INPUT_TOKEN="Please enter your API TOKEN"
 BOT_TG_PRIVATE_TOP="Please send to \033[32myour bot\033[33m, NOT BotFather!\033[0m"
-BOT_TG_PUBLIC_HINT="Please message the bot: \033[32;4mhttps://t.me/ShellCrashtg_bot\033[0m"
+# 去原作者化：上游公共机器人已停用，仅保留私人机器人提示
 BOT_TG_PUBLIC_DISABLED="Public bot relay removed (security-hardened build). Please use your own private bot."
 BOT_TG_SET_DONE="Telegram log push has been configured!"
 BOT_TG_CHATID_RETRY_PREFIX="Attempt"
@@ -15,11 +15,8 @@ BOT_TG_INPUT_CHATID="Please input ChatID manually"
 BOT_TG_CHATID_RECONFIG="Unable to get chat ID. Please reconfigure!"
 BOT_TG_CRON_NAME="TG_BOT watchdog"
 
-BOT_TG_HELP_GROUP="Group chat:"
-BOT_TG_HELP_PROJECT="Project:"
-BOT_TG_HELP_GUIDE="Guide:"
-BOT_TG_HELP_COFFEE="Buy me a coffee:"
-BOT_TG_HELP_AIRPORT="Partner provider:"
+# 去原作者化：机器人帮助仅保留功能说明，不再展示上游群/项目/教程引流
+BOT_TG_HELP_BASIC="Functions: check status, start/stop service, upload/download config and logs. Choose an action below:"
 BOT_TG_RUN_ON="🟢Running"
 BOT_TG_RUN_OFF="🟡Stopped"
 BOT_TG_WELCOME="Welcome to ShellCrash!"

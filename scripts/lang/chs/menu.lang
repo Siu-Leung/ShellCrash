@@ -36,7 +36,6 @@ MENU_AUTOSTART_DEBUG="并处于debug状态！"
 MENU_MEM_USED="当前内存占用："
 MENU_RUNNING_TIME="已运行："
 
-MENU_TG_CHANNEL="TG频道："
 
 # ===== /tmp 文件检测 =====
 MENU_TMP_CORE_FOUND="发现可用的内核文件："
@@ -65,7 +64,6 @@ MENU_SERVICE_STOPPED="服务已停止！"
 
 # ===== 测试 / 调试 =====
 MENU_TEST_RUNNING_1="正在测试运行！"
-MENU_TEST_RUNNING_2="如发现错误请截图后前往咨询："
 MENU_TEST_DONE_OK="测试完成！没有发现问题，请重新启动服务～"
 MENU_TEST_DONE_FAIL="测试完成！"
 MENU_TEST_LOG_HINT="完整执行记录请查看："
@@ -84,6 +82,3 @@ MENU_CLI_START="启动服务"
 MENU_CLI_STOP="停止服务"
 MENU_CLI_BOOT_INIT="开机初始化"
 
-MENU_HELP_ONLINE="在线求助："
-MENU_HELP_BLOG="官方博客："
-MENU_HELP_GITHUB="发布页面："

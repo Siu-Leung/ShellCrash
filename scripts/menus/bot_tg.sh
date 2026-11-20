@@ -34,13 +34,9 @@ send_msg(){
     web_json_post "$API/sendMessage" "{\"chat_id\":\"$TG_CHATID\",\"text\":\"$TEXT\",\"parse_mode\":\"Markdown\"}"
 }
 send_help(){
+    # 去原作者化：帮助消息只保留机器人功能说明，移除上游 TG 群/项目/博客引流
     TEXT=$(cat <<EOF
-$BOT_TG_HELP_GROUP
-https://t.me/+6AElkMDzwPxmMmM1
-$BOT_TG_HELP_PROJECT
-https://github.com/juewuy/ShellClash
-$BOT_TG_HELP_GUIDE
-https://juewuy.github.io
+$BOT_TG_HELP_BASIC
 EOF
 )
     send_msg "$TEXT"

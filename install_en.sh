@@ -8,7 +8,9 @@ echo "**                             by  Juewuy    **"
 echo "***********************************************"
 
 language=en
-[ -z "$url" ] && url="https://testingcf.jsdelivr.net/gh/juewuy/ShellCrash@master"
+# 去原作者化：默认安装源改为本 fork 仓库（Siu-Leung/ShellCrash），不再经过上游仓库
+# 安全加固：默认走 dev（加固版分支）；master 是未加固的上游镜像，勿作默认
+[ -z "$url" ] && url="https://cdn.jsdelivr.net/gh/Siu-Leung/ShellCrash@dev"
 
 # Internal Tools
 cecho() {
@@ -47,7 +49,8 @@ webget() {
     fi
 }
 error_down() {
-    cecho "Please refer to \033[32mhttps://github.com/juewuy/ShellCrash/blob/master/README.md"
+    # 去原作者化：错误提示指向本 fork 仓库文档，不再引导至上游仓库
+    cecho "Please refer to \033[32mhttps://github.com/Siu-Leung/ShellCrash/blob/dev/README.md"
     cecho "\033[33mUse an alternative source to reinstall!\033[0m"
 }
 
@@ -277,21 +280,16 @@ install() {
     cecho "\033[33mType \033[30;47m $my_alias \033[0;33m to start management dashboard!!!\033[0m"
     echo "-----------------------------------------------"
 }
+# Security hardening / de-upstream: this fork maintains the hardened build only on the dev branch.
+# master/stable are unmodified upstream mirrors; all choices pin to dev to prevent installing an unhardened build.
 setversion() {
     echo "-----------------------------------------------"
-    cecho "\033[33mSelect version to install:\033[0m"
-    cecho " 1 \033[32mBeta (Recommended)\033[0m"
-    cecho " 2 \033[36mStable\033[0m"
-    cecho " 3 \033[31mDev (Unstable)\033[0m"
+    cecho "\033[33mThis hardened fork ships a single edition:\033[0m"
+    cecho " 1 \033[32mHardened build (dev, recommended)\033[0m"
     echo "-----------------------------------------------"
     read -p "Enter number > " num
-    case "$num" in
-	1) release_type=master ;;
-    2) release_type=stable ;;
-    3) release_type=dev ;;
-    *) ;;
-    esac
-	url=$(echo "$url" | sed "s/master/$release_type/")
+    release_type=dev
+    url=$(echo "$url" | sed "s/@[a-z]*/@dev/")
 }
 
 # Pre-Install Checks
@@ -326,7 +324,7 @@ check_version() {
 	# Output
 	cecho "Latest Version: \033[32m$versionsh\033[0m"
 	echo "-----------------------------------------------"
-	cecho "\033[44mFor issues, please join the TG group: \033[42;30m t.me/ShellClash \033[0m"
+	cecho "\033[44mFor issues, please report at: \033[42;30m https://github.com/Siu-Leung/ShellCrash/issues \033[0m"
 	cecho "\033[37mSupports various OpenWrt-based router devices"
 	cecho "\033[33mSupports Debian, Centos and standard Linux systems\033[0m"
 }

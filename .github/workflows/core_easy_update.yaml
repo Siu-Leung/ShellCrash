@@ -27,7 +27,7 @@ jobs:
     if: github.event.inputs.tag1 == 'meta'
     needs: get_version
     permissions: write-all
-    uses: juewuy/ShellCrash/.github/workflows/update_meta_core.yaml@dev
+    uses: Siu-Leung/ShellCrash/.github/workflows/update_meta_core.yaml@dev
     with:
       tag1: MetaCubeX/mihomo
       tag2: ${{ needs.get_version.outputs.version }}
@@ -40,7 +40,7 @@ jobs:
     if: github.event.inputs.tag1 == 'meta'
     needs: [get_version, update_meta_upx]
     permissions: write-all
-    uses: juewuy/ShellCrash/.github/workflows/update_meta_core.yaml@dev
+    uses: Siu-Leung/ShellCrash/.github/workflows/update_meta_core.yaml@dev
     with:
       tag1: MetaCubeX/mihomo
       tag2: ${{ needs.get_version.outputs.version }}
@@ -53,7 +53,7 @@ jobs:
     if: github.event.inputs.tag1 == 'singboxr'
     needs: get_version
     permissions: write-all
-    uses: juewuy/ShellCrash/.github/workflows/update_singbox_core.yaml@dev
+    uses: Siu-Leung/ShellCrash/.github/workflows/update_singbox_core.yaml@dev
     with:
       tag1: reF1nd/sing-box
       tag2: ${{ needs.get_version.outputs.version }}
@@ -66,7 +66,7 @@ jobs:
     if: github.event.inputs.tag1 == 'singboxr'
     needs: [get_version, update_singboxr_upx]
     permissions: write-all
-    uses: juewuy/ShellCrash/.github/workflows/update_singbox_core.yaml@dev
+    uses: Siu-Leung/ShellCrash/.github/workflows/update_singbox_core.yaml@dev
     with:
       tag1: reF1nd/sing-box
       tag2: ${{ needs.get_version.outputs.version }}
@@ -79,7 +79,7 @@ jobs:
     if: github.event.inputs.tag1 == 'singbox'
     needs: get_version
     permissions: write-all
-    uses: juewuy/ShellCrash/.github/workflows/update_singbox_core.yaml@dev
+    uses: Siu-Leung/ShellCrash/.github/workflows/update_singbox_core.yaml@dev
     with:
       tag1: SagerNet/sing-box
       tag2: ${{ needs.get_version.outputs.version }}

@@ -3,15 +3,34 @@
 
 #修饰singbox配置文件
 
+# 安全加固/修正：解析 DNS server 字符串为 sing-box 1.14+ DNS server JSON 字段片段。
+# 用途：把 ShellCrash 的 DNS 配置项（逗号分隔列表的第一项）转换为 sing-box 所需 JSON 键值。
+# 参数：$1 DNS server 字符串，支持:
+#       - 纯 IP / 域名（默认 udp，端口 53）
+#       - [IPv6]:port 形式（含方括号的 IPv6 字面量）
+#       - scheme://host[:port][/path] 形式（udp/tcp/doh/https/dot/tls）
+# 返回：echo 一段带尾逗号的 JSON 字段：'"type": ..., "server": ..., "server_port": ..., ["path": ...,"]'
+# 设计说明/边界条件：
+#   1. DoH(https) 的 path 必须保留：sing-box 用 "path" 字段承载 /dns-query/<uuid> 这类私有长路径，
+#      原实现把 /path 丢弃，且 port 得到 "port/path" 非数字，导致私有 DoH 完全不可用。
+#   2. scheme:// 后的 host:port/path 需先剥离 path 再解析端口；IPv6 用 [..]:port 单独处理。
+#   3. type 保留原值（doh/https/dot/tls 等）：sing-box 1.14+ 使用 https/tls 类型名，
+#      ShellCrash 配置里常见 doh/dot 别名，这里由内核/配置侧保证一致，不在本函数改名。
+#   4. 输出为 JSON 字段片段（含尾逗号），调用方直接嵌入 JSON 对象。
 parse_singbox_dns() { #dns转换工具
-    first_dns=$(echo "$1" | cut -d',' -f1 | cut -d' ' -f1)
+    first_dns=$(printf '%s\n' "$1" | cut -d',' -f1 | cut -d' ' -f1)
     type=""
     server=""
     port=""
+    path=""
     case "$first_dns" in
         *://*)
             type="${first_dns%%://*}"
             tmp="${first_dns#*://}"
+            # 修正：scheme:// 之后的部分可能含 /path，先切出 path（含前导 /），只用 host[:port] 解析端口
+            case "$tmp" in
+                */*) path="/${tmp#*/}"; tmp="${tmp%%/*}" ;;
+            esac
             ;;
         *)
             type="udp"
@@ -20,17 +39,23 @@ parse_singbox_dns() { #dns转换工具
     esac
     case "$tmp" in
         \[*\]*)
+            # IPv6 字面量：[2001:db8::1]:53 —— 去掉方括号取 server，取 ] 后冒号后为端口
             server="${tmp%%]*}"
             server="${server#[}"
             port="${tmp#*\]}"
             port="${port#:}"
             ;;
         *)
+            # 域名或 IPv4：按首个 ':' 或 '/' 切分（path 已在上一步剥离）
             server="${tmp%%[:/]*}"
             port="${tmp#*:}"
             [ "$port" = "$tmp" ] && port=""
             ;;
     esac
+    if [ -z "$port" ] || printf '%s' "$port" | grep -q '[^0-9]'; then
+        # 修正：端口非纯数字（如旧逻辑把 "44443/dns-query/x" 当作端口）时按缺省端口处理
+        port=""
+    fi
     if [ -z "$port" ]; then
         case "$type" in
             udp|tcp) port=53 ;;
@@ -39,8 +64,12 @@ parse_singbox_dns() { #dns转换工具
             *) port=53 ;;
         esac
     fi
-    # 输出
-    echo '"type": "'"$type"'", "server": "'"$server"'", "server_port": '"$port"','
+    # 输出：path 仅在有路径时输出，符合 sing-box 1.14+ https DNS server 语法
+    if [ -n "$path" ]; then
+        echo '"type": "'"$type"'", "server": "'"$server"'", "server_port": '"$port"', "path": "'"$path"'",'
+    else
+        echo '"type": "'"$type"'", "server": "'"$server"'", "server_port": '"$port"','
+    fi
 }
 
 # 安全加固：把 ShellCrash 的通配符规则文件正确转换为 sing-box 的 domain/domain_suffix/domain_regex 规则。

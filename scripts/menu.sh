@@ -193,8 +193,8 @@ ckstatus() {
         [ "$res" = 1 ] && unset disoverride && setconfig disoverride
     }
 
-    top_box "\033[30;43m$MENU_WELCOME\033[0m\t\t  Ver: $versionsh_l" \
-        "$MENU_TG_CHANNEL\033[36;4mhttps://t.me/ShellClash\033[0m"
+    # 去原作者化：状态横幅不展示上游 TG 频道引流，仅保留版本信息
+    top_box "\033[30;43m$MENU_WELCOME\033[0m\t\t  Ver: $versionsh_l"
     separator_line "-"
     content_line "$corename$run\t  $auto"
     if [ -n "$PID" ]; then
@@ -310,8 +310,8 @@ case "$1" in
     ;;
 -d)
     shtype=sh && [ -n "$(ls -l /bin/sh | grep -o dash)" ] && shtype=bash
-    comp_box "$MENU_TEST_RUNNING_1" \
-        "$MENU_TEST_RUNNING_2\033[36;4mhttps://t.me/ShellClash\033[0m"
+    # 去原作者化：调试提示不展示上游 TG 频道引流
+    comp_box "$MENU_TEST_RUNNING_1"
     "$shtype" "$CRASHDIR"/start.sh debug >/dev/null 2>"$TMPDIR"/debug_sh_bug.log
     "$shtype" -x "$CRASHDIR"/start.sh debug >/dev/null 2>"$TMPDIR"/debug_sh.log
     cat "$TMPDIR"/debug_sh_bug.log | grep 'start\.sh' >"$TMPDIR"/sh_bug
@@ -347,11 +347,8 @@ case "$1" in
     separator_line "-"
     content_line "crash -s start	$MENU_CLI_START"
     content_line "crash -s stop	$MENU_CLI_STOP"
+    # 去原作者化：帮助页不再展示上游 TG/博客/仓库引流，仅保留命令帮助
     content_line "$CRASHDIR/start.sh init $MENU_CLI_BOOT_INIT"
-    separator_line "-"
-    content_line "$MENU_HELP_ONLINE\033[36mhttps://t.me/ShellClash\033[0m"
-    content_line "$MENU_HELP_BLOG\033[36mhttps://juewuy.github.io\033[0m"
-    content_line "$MENU_HELP_GITHUB\033[36mhttps://github.com/juewuy/ShellCrash\033[0m"
     separator_line "="
     line_break
     ;;

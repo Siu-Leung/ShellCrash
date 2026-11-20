@@ -9,7 +9,7 @@ jobs:
     
   auto_update_singboxr_dev:
     permissions: write-all
-    uses: juewuy/ShellCrash/.github/workflows/update_singbox_core.yaml@dev
+    uses: Siu-Leung/ShellCrash/.github/workflows/update_singbox_core.yaml@dev
     with:
       tag1: reF1nd/sing-box
       tag2: reF1nd-testing
@@ -21,7 +21,7 @@ jobs:
   auto_update_meta_alpha:
     permissions: write-all
     needs: auto_update_singboxr_dev
-    uses: juewuy/ShellCrash/.github/workflows/update_meta_core.yaml@dev
+    uses: Siu-Leung/ShellCrash/.github/workflows/update_meta_core.yaml@dev
     with:
       tag1: MetaCubeX/mihomo
       tag2: Alpha

@@ -62,8 +62,8 @@ upgrade() {
             setcrt
             ;;
         6)
-            msg_alert -t 2 "$UPG_PAC_LINK\033[30;47m http://$host:$db_port/ui/pac \033[0m" \
-                "$UPG_PAC_GUIDE\033[4;32mhttps://juewuy.github.io/ehRUeewcv\033[0m"
+            # 去原作者化：移除上游博客 PAC 教程链接，仅保留本地 PAC 地址提示
+            msg_alert -t 2 "$UPG_PAC_LINK\033[30;47m http://$host:$db_port/ui/pac \033[0m"
             ;;
         7)
             setserver
@@ -193,9 +193,10 @@ setscripts() {
 setcpucore() {
     cpucore_list="armv5 armv7 arm64 386 amd64 mipsle-softfloat mipsle-hardfloat mips-softfloat"
 
+    # 去原作者化：移除上游博客教程链接，保留架构选择提示语义
     comp_box "\033[31m$UPG_CPUCORE_HINT1\033[0m" \
         "$UPG_CPUCORE_HINT2" \
-        "$UPG_CPUCORE_HINT3\033[36;4mhttps://juewuy.github.io/bdaz\033[0m"
+        "$UPG_CPUCORE_HINT3$UPG_CPUCORE_HINT_LOCAL"
     content_line "$UPG_CPUCORE_LIST"
     separator_line "-"
 
@@ -985,7 +986,7 @@ setdb() {
             ;;
         2)
             db_type=meta_xd
-            setconfig external_ui_url "https://raw.githubusercontent.com/juewuy/ShellCrash/update/bin/dashboard/meta_xd.tar.gz"
+            setconfig external_ui_url "https://raw.githubusercontent.com/Siu-Leung/ShellCrash/update/bin/dashboard/meta_xd.tar.gz"
             dbdir
             ;;
         3)
@@ -1230,7 +1231,8 @@ setserver() {
                 separator_line "="
                 content_line "\033[32m$UPG_SOURCE_VER_GETTING\033[0m"
                 . "$CRASHDIR"/libs/web_get_lite.sh
-                list=$(web_get_lite https://api.github.com/repos/juewuy/ShellCrash/tags | grep -E '"name": "[0-9]' | cut -d '"' -f4)
+                # 去原作者化：版本列表改从本 fork 仓库 API 获取
+                list=$(web_get_lite https://api.github.com/repos/Siu-Leung/ShellCrash/tags | grep -E '"name": "[0-9]' | cut -d '"' -f4)
                 if [ "$?" = "0" ]; then
                     content_line "\033[32m$UPG_SOURCE_VER_OK\033[0m"
                     separator_line "="

@@ -68,7 +68,8 @@ OVR_PROXIES_MANAGE="2) 管理自定义节点"
 OVR_PROXIES_CLEAR="3) 清空自定义节点"
 OVR_PROXIES_BYPASS="4) 配置节点绕过："
 OVR_PROXIES_WARN1="注意\n节点格式必须是单行、不包括括号、以“name:”开头，例如："
-OVR_PROXIES_WARN2="更多写法请参考：\033[32mhttps://juewuy.github.io/\033[0m"
+# 去原作者化：移除上游博客链接，保留格式提示语义
+OVR_PROXIES_WARN2="更多写法请参考项目文档："
 OVR_PROXIES_INPUT="请直接输入自定义节点"
 OVR_PROXIES_BLOCK_HASH="绝对禁止包含【#】号！"
 OVR_PROXIES_ADD_HINT="请选择想要将节点添加到的策略组"
@@ -92,4 +93,5 @@ OVR_ADV_LIN="Linux可使用\033[33mvim\033[0m进行编辑（路由设备若不�
 OVR_SING_TITLE1="支持覆盖脚本设置的模块有："
 OVR_SING_TITLE2="支持与内置功能合并（但不可冲突）的模块有："
 OVR_SING_TITLE3="将相应json文件放入\033[33m$JSONSDIR\033[0m目录后即可在启动时自动加载"
-OVR_SING_TITLE4="使用前请务必参考配置教程：\033[32;4m https://juewuy.github.io/nWTjEpkSK \033[0m"
+# 去原作者化：移除上游博客教程链接，保留使用前查阅文档提示
+OVR_SING_TITLE4="使用前请务必参考项目文档中的配置说明："

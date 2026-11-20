@@ -196,8 +196,8 @@ tools() {
 }
 
 mi_autoSSH() {
-    comp_box "\033[33m$TOOLS_AUTO_SSH_WARN1\033[0m" \
-        "\033[33m$TOOLS_AUTO_SSH_WARN2\033[36;4mhttps://t.me/ShellClash\033[0m"
+    # 去原作者化：移除上游 TG 频道引流，仅保留功能提示
+    comp_box "\033[33m$TOOLS_AUTO_SSH_WARN1\033[0m"
     btm_box "$TOOLS_AUTO_SSH_PWD_HINT1" \
         "$TOOLS_AUTO_SSH_PWD_HINT2"
     read -r -p "$TOOLS_AUTO_SSH_INPUT" mi_mi_autoSSH_pwd
@@ -262,7 +262,7 @@ log_pusher() {
                     continue
                 fi
             else
-                # echo -e "\033[33m详细设置指南请参考 https://juewuy.github.io/ \033[0m"
+                # 去原作者化：移除注释中的上游博客指南链接
                 . "$CRASHDIR"/menus/bot_tg_bind.sh
                 # 安全加固：移除公共机器人选项，仅保留用户自建机器人
                 chose_bot() {
@@ -301,7 +301,7 @@ log_pusher() {
                     continue
                 fi
             else
-                # echo -e "\033[33m详细设置指南请参考 https://juewuy.github.io/ \033[0m"
+                # 去原作者化：移除注释中的上游博客指南链接
                 comp_box "$TOOLS_PUSHDEER_SELECT_SERVER" \
                     "$TOOLS_PUSHDEER_OFFICIAL" \
                     "$TOOLS_PUSHDEER_CUSTOM" \
@@ -369,7 +369,7 @@ log_pusher() {
                     continue
                 fi
             else
-                # echo -e "\033[33m详细设置指南请参考 https://juewuy.github.io/ \033[0m"
+                # 去原作者化：移除注释中的上游博客指南链接
                 comp_box "\033[33m$TOOLS_BARK_WARN\033[0m" \
                     "\033[32m$TOOLS_BARK_INSTALL\033[0m"
                 btm_box "\033[36m$TOOLS_BARK_URL_HINT\033[0m" \
@@ -401,7 +401,7 @@ log_pusher() {
                     continue
                 fi
             else
-                # echo -e "\033[33m详细设置指南请参考 https://juewuy.github.io/ \033[0m"
+                # 去原作者化：移除注释中的上游博客指南链接
                 comp_box "$TOOLS_PUSHOVER_REG" \
                     "" \
                     "\033[36m$TOOLS_PUSHOVER_USERKEY_HINT\033[0m" \
@@ -447,7 +447,7 @@ log_pusher() {
                     continue
                 fi
             else
-                # echo -e "\033[33m详细设置指南请参考 https://juewuy.github.io/ \033[0m"
+                # 去原作者化：移除注释中的上游博客指南链接
                 comp_box "$TOOLS_PUSHPLUS_REG"
                 btm_box "\033[36m$TOOLS_PUSHPLUS_TOKEN_HINT\033[0m" \
                     "$TOOLS_OR_BACK"

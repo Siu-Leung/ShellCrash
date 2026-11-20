@@ -20,6 +20,7 @@ SET_MENU_UI="UI Switch"
 # =================================================
 SET_WARN_NONROOT="Non-root users may not be able to configure some modes correctly. Continue anyway?"
 SET_SKIP_CERT_ON="Skipping local certificate verification is now ENABLED!"
+SET_SKIP_CERT_WARN="Security warning: skipping certificate verification removes tamper protection on downloads and may let a man-in-the-middle replace scripts or the core. Only enable it on self-signed/legacy devices that truly cannot verify, and make sure the source is trusted."
 SET_SKIP_CERT_OFF="Skipping local certificate verification is now DISABLED!"
 
 SET_SNIFFER_CORE_SWITCH="Automatically switched to Meta core (required for domain sniffing)"

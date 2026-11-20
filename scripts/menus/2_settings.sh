@@ -10,7 +10,8 @@ load_lang 2_settings
 settings() {
     while true; do
         # 获取设置默认显示
-        [ -z "$skip_cert" ] && skip_cert=ON
+        # 安全加固：默认严格校验证书(OFF)；原版默认 ON=跳过校验有中间人风险，改由用户按需显式开启
+        [ -z "$skip_cert" ] && skip_cert=OFF
         [ -z "$sniffer" ] && {
             sniffer=OFF
             echo "$crashcore" | grep -q 'singbox' && sniffer=ON
@@ -75,6 +76,13 @@ settings() {
             read -r -p "$COMMON_INPUT> " num
             if [ "$num" = 1 ]; then
                 if [ "$skip_cert" = OFF ]; then
+                    # 安全加固：开启"跳过证书校验"前弹出风险警告并要求二次确认，
+                    # 避免用户顺手开启而失去下载防篡改保护（原版无提示直接开启）。
+                    comp_box "\033[31m$SET_SKIP_CERT_WARN\033[0m"
+                    btm_box "1) $SET_YES" \
+                        "0) $SET_NO_BACK"
+                    read -r -p "$COMMON_INPUT> " confirm
+                    [ "$confirm" != 1 ] && continue
                     skip_cert=ON
                     msg_alert "\033[33m$SET_SKIP_CERT_ON\033[0m"
                 else

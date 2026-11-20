@@ -29,6 +29,11 @@ cp scripts/lang/en/dns.lang          "$STAGE/lang/en/dns.lang"
 cp scripts/menus/override.sh         "$STAGE/menus/override.sh"
 cp scripts/lang/chs/override.lang    "$STAGE/lang/chs/override.lang"
 cp scripts/lang/en/override.lang     "$STAGE/lang/en/override.lang"
+# TLS 证书校验加固
+cp scripts/menus/2_settings.sh       "$STAGE/menus/2_settings.sh"
+cp scripts/lang/chs/2_settings.lang  "$STAGE/lang/chs/2_settings.lang"
+cp scripts/lang/en/2_settings.lang   "$STAGE/lang/en/2_settings.lang"
+# get_config.sh 已在上方 DNS 段映射（含 skip_cert 默认值）
 cp public/servers.list               "$STAGE/servers.list"
 cp public/servers_chs.list           "$STAGE/servers_chs.list"
 cp public/servers_en.list            "$STAGE/servers_en.list"

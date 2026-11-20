@@ -15,11 +15,13 @@ prepare_clash_base_config() {
     #Meta内核专属配置
     [ "$crashcore" = 'meta' ] && {
         [ -z "$(grep 'PROCESS' "$CRASHDIR"/yamls/*.yaml)" ] && find_process='find-process-mode: "off"'
-        #ecs优化
+        #ecs优化：对直连/代理/proxy-server DNS 统一附加 ECS，bootstrap 域名服务器保持不变以免循环依赖
         [ "$ecs_subnet" = ON ] && {
             . "$CRASHDIR"/libs/get_ecsip.sh
             if [ -n "$ecs_address" ];then
-                dns_fallback=$(echo "$dns_fallback, " | sed "s|, |#ecs-override=true\&ecs=$ecs_address, |g" | sed 's|, $||')
+                dns_nameserver=$(append_ecs_to_dns "$dns_nameserver" "$ecs_address")
+                dns_fallback=$(append_ecs_to_dns "$dns_fallback" "$ecs_address")
+                dns_proxy_server=$(append_ecs_to_dns "$dns_proxy_server" "$ecs_address")
             else
                 logger "自动获取ecs网段失败！" 33
             fi
@@ -58,7 +60,12 @@ EOF
         if [ "$dns_mod" = "mix" ] || [ "$dns_mod" = "route" ]; then
             [ "$dns_protect" != "OFF" ] && dns_final="$dns_fallback" || dns_final="$dns_nameserver"
             # 构建nameserver-policy
-            echo "  respect-rules: true" >>"$TMPDIR"/dns.yaml
+            # 安全加固：respect-rules 默认 ON 保持原行为；设为 OFF 可规避与 nameserver-policy 语义重叠导致的解析异常
+            if [ "$dns_respect_rules" = "OFF" ]; then
+                echo "  respect-rules: false" >>"$TMPDIR"/dns.yaml
+            else
+                echo "  respect-rules: true" >>"$TMPDIR"/dns.yaml
+            fi
             echo "  nameserver-policy:" >>"$TMPDIR"/dns.yaml
             # 添加用户自定义直连域名
             if [ -s "$CRASHDIR/configs/dns_direct_domains" ]; then

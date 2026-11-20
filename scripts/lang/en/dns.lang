@@ -1,4 +1,9 @@
 #===== DNS Main Menu =====
+DNS_INPUT_INVALID="Invalid input: domain/rule must not contain spaces, commas or quotes!"
+DNS_DUPLICATE="Already exists, duplicate entry skipped."
+DNS_RESPECT_RULES="DNS respect-rules"
+DNS_RESPECT_RULES_DESC="Disable to avoid semantic overlap with nameserver-policy (meta core only)"
+DNS_FAKEIP_RANGE="Configure fake-ip ranges"
 DNS_CURRENT_MODE="Current DNS running mode:"
 DNS_RESTART_NOTICE="Changes require a manual service restart to take effect."
 

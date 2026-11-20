@@ -6,6 +6,75 @@ __IS_MODULE_DNS_LOADED=1
 
 load_lang dns
 
+# 安全加固：向配置文件追加一条规则/域名，先 trim、去空、去重、校验基本合法性。
+# $1=目标文件  $2=输入内容  $3=类型(domain|rule)
+# 返回 0=已追加  1=重复/无效
+dns_cfg_append() {
+    _dc_file="$1"
+    _dc_val=$(printf '%s' "$2" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+    [ -z "$_dc_val" ] && return 1
+    # 域名字段不允许出现裸空格或逗号（会破坏 YAML/JSON），规则字段允许通配符但不允许空白
+    if printf '%s' "$_dc_val" | grep -qE '[[:space:],"]'; then
+        msg_alert "\033[31m$DNS_INPUT_INVALID\033[0m"
+        return 1
+    fi
+    # 去重：整行精确匹配（忽略注释行）
+    if [ -f "$_dc_file" ] && grep -qxF "$_dc_val" "$_dc_file"; then
+        msg_alert "\033[33m$DNS_DUPLICATE\033[0m"
+        return 1
+    fi
+    printf '%s\n' "$_dc_val" >>"$_dc_file" && return 0
+    return 1
+}
+
+# 安全加固：判断 IPv4 地址是否落在 CIDR 网段内（用数值范围比较，不依赖 awk 位运算）
+ip_in_cidr() {
+    awk -v ip="$1" -v cidr="$2" 'BEGIN{
+        split(cidr,c,"/"); split(c[1],n,"."); split(ip,a,".");
+        ipn=a[1]*16777216+a[2]*65536+a[3]*256+a[4];
+        netn=n[1]*16777216+n[2]*65536+n[3]*256+n[4];
+        bits=c[2]+0;
+        span=2^(32-bits);
+        if(ipn>=netn && ipn<netn+span) exit 0; else exit 1;
+    }'
+}
+
+# 安全加固：查看/修改 fake-ip 网段，附本地网段冲突检测
+fake_ip_range() {
+    while true; do
+        comp_box "\033[32m$DNS_FAKEIP_RANGE\033[0m" \
+            "\033[36mIPv4: $fakeip4\033[0m" \
+            "\033[36mIPv6: $fakeip6\033[0m"
+        _conflict=''
+        for _lip in $(ip -4 -o addr 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | sort -u); do
+            ip_in_cidr "$_lip" "$fakeip4" && _conflict="$_conflict $_lip"
+        done
+        [ -n "$_conflict" ] && content_line "\033[31m警告：本地地址 $_conflict 与 fake-ip 段重叠，可能导致路由异常！\033[0m" \
+            || content_line "\033[32m未发现本地网段冲突\033[0m"
+        content_line "\033[33m修改后需重启服务，防火墙规则会自动采用新段。\033[0m"
+        btm_box "1) 修改 IPv4 fake-ip 段" \
+            "0) $COMMON_BACK"
+        read -r -p "$COMMON_INPUT> " _n
+        case "$_n" in
+        "" | 0) break ;;
+        1)
+            read -r -p "输入新 IPv4 CIDR（如 198.18.0.0/15）> " _new
+            case "$_new" in
+            */*) ;;
+            *) msg_alert "\033[31m格式错误：需 CIDR 形式\033[0m"; continue ;;
+            esac
+            _ip=${_new%/*}; _bits=${_new#*/}
+            echo "$_ip" | grep -qE '^([0-9]{1,3}\.){3}[0-9]{1,3}$' || { msg_alert "\033[31m非法 IPv4\033[0m"; continue; }
+            [ "$_bits" -ge 8 ] 2>/dev/null && [ "$_bits" -le 30 ] || { msg_alert "\033[31m掩码需在 8-30 之间\033[0m"; continue; }
+            fakeip4="$_new"
+            setconfig fakeip4 "'$fakeip4'"
+            msg_alert "\033[32mfakeip4 已设为 $fakeip4，请重启服务\033[0m"
+            ;;
+        *) errornum ;;
+        esac
+    done
+}
+
 # DNS 模式设置
 set_dns_mod() {
     while true; do
@@ -25,6 +94,7 @@ set_dns_mod() {
         [ "$dns_mod" = "mix" ] &&
             content_line "8) \033[33m$DNS_FAKEIP_MENU\033[0m"
         content_line "9) \033[36m$DNS_ADV_MENU\033[0m"
+        content_line "b) \033[36m$DNS_FAKEIP_RANGE\033[0m"
         [ "$dns_mod" = "mix" ] || [ "$dns_mod" = "route" ] &&
             content_line "a) \033[32m$DNS_DIRECT_MENU\033[0m"
         content_line ""
@@ -118,6 +188,9 @@ set_dns_mod() {
         9)
             set_dns_adv
             ;;
+        b)
+            fake_ip_range
+            ;;
         a)
             if [ "$dns_mod" = "mix" ] || [ "$dns_mod" = "route" ]; then
                 dns_direct_domains
@@ -167,7 +240,7 @@ fake_ip_filter() {
                     "0) $COMMON_BACK"
                 read -r -p "$COMMON_INPUT>" res
                 if [ "$res" = 1 ]; then
-                    if echo "$input" >>"$CRASHDIR/configs/fake_ip_filter"; then
+                    if dns_cfg_append "$CRASHDIR/configs/fake_ip_filter" "$input" rule; then
                         msg_alert "\033[32m$DNS_ADD_OK\033[0m"
                     else
                         msg_alert "\033[31m$DNS_ADD_FAIL\033[0m"
@@ -217,7 +290,7 @@ dns_direct_domains() {
                 continue
                 ;;
             *)
-                if echo "$domain" >>"$CRASHDIR/configs/dns_direct_domains"; then
+                if dns_cfg_append "$CRASHDIR/configs/dns_direct_domains" "$domain" domain; then
                     msg_alert "\033[32m$DNS_ADD_OK\033[0m"
                 else
                     msg_alert "\033[31m$DNS_ADD_FAIL\033[0m"
@@ -227,8 +300,13 @@ dns_direct_domains() {
             ;;
         r)
             if [ -s "$CRASHDIR/public/dns_direct_domains.list" ]; then
-                cat "$CRASHDIR/public/dns_direct_domains.list" >>"$CRASHDIR/configs/dns_direct_domains"
-                msg_alert "\033[32m$DNS_DIRECT_LOAD_OK\033[0m"
+                # 安全加固：预设合并时去重，不重复写入已存在的域名
+                _added=0
+                while IFS= read -r _pd || [ -n "$_pd" ]; do
+                    case "$_pd" in '' | \#*) continue ;; esac
+                    dns_cfg_append "$CRASHDIR/configs/dns_direct_domains" "$_pd" domain >/dev/null 2>&1 && _added=$((_added + 1))
+                done <"$CRASHDIR/public/dns_direct_domains.list"
+                msg_alert "\033[32m$DNS_DIRECT_LOAD_OK (+$_added)\033[0m"
             else
                 msg_alert "\033[31m预设文件不存在！\033[0m"
             fi
@@ -243,8 +321,24 @@ dns_direct_domains() {
                 continue
                 ;;
             *)
-                # 使用本地 DNS 解析
-                result=$(nslookup "$test_domain" 127.0.0.1:$dns_port 2>&1 || echo "解析失败")
+                # 安全加固：优先用 nslookup；精简系统无 nslookup 时用内核 DNS API(Clash/Mihomo) 兜底
+                if command -v nslookup >/dev/null 2>&1; then
+                    result=$(nslookup "$test_domain" 127.0.0.1:$dns_port 2>&1 || echo "解析失败")
+                elif command -v dig >/dev/null 2>&1; then
+                    result=$(dig +short +time=2 "@127.0.0.1" -p "$dns_port" "$test_domain" 2>&1 || echo "解析失败")
+                else
+                    # 通过 mihomo/clash external-controller 的 /dns/query 接口查询
+                    [ -z "$secret" ] && secret=$(grep -E '^secret=' "$CRASHDIR/configs/ShellCrash.cfg" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d "'\"")
+                    _dns_json=$(printf '{"host":"%s","type":"A"}' "$test_domain")
+                    if command -v curl >/dev/null 2>&1; then
+                        result=$(curl -s --connect-timeout 3 -H "Authorization: Bearer $secret" -H 'Content-Type: application/json' -X POST "http://127.0.0.1:$db_port/dns/query" -d "$_dns_json" 2>&1)
+                    elif command -v wget >/dev/null 2>&1; then
+                        result=$(wget -q --timeout=3 --header="Authorization: Bearer $secret" --header='Content-Type: application/json' --method=POST --body-data="$_dns_json" -O - "http://127.0.0.1:$db_port/dns/query" 2>&1)
+                    else
+                        result="无可用 DNS 查询工具（nslookup/dig/curl/wget 均缺失）"
+                    fi
+                    [ -z "$result" ] && result="查询无响应（确认内核已启动且 dns.enable=true）"
+                fi
                 comp_box "$DNS_DIRECT_TEST_RESULT" \
                     "$result"
                 # 判断是否在直连列表中
@@ -297,6 +391,7 @@ set_dns_adv() {
 			"4) $DNS_ADV_EDIT_PROXY_SERVER" \
             "5) \033[32m$DNS_ADV_AUTO_ENCRYPT\033[0m" \
             "6) $DNS_ADV_FAILOVER：\t\033[36m$dns_failover\033[0m" \
+            "7) $DNS_RESPECT_RULES：\t\033[36m$dns_respect_rules\033[0m" \
             "9) \033[33m$DNS_ADV_RESET\033[0m" \
             "" \
             "0) $COMMON_BACK"
@@ -436,10 +531,22 @@ set_dns_adv() {
                 common_success
             fi
             ;;
+        7)
+            # 安全加固：切换 respect-rules，仅 meta 内核有意义
+            if echo "$crashcore" | grep -q 'meta'; then
+                [ "$dns_respect_rules" = "ON" ] && dns_respect_rules=OFF || dns_respect_rules=ON
+                setconfig dns_respect_rules "$dns_respect_rules"
+                msg_alert "\033[36m$DNS_RESPECT_RULES: $dns_respect_rules\033[0m"
+            else
+                msg_alert "\033[33m$DNS_CORE_UNSUPPORTED\033[0m"
+            fi
+            ;;
         9)
             setconfig dns_nameserver
             setconfig dns_fallback
             setconfig dns_resolver
+            setconfig dns_failover
+            setconfig dns_respect_rules
             . "$CRASHDIR/libs/get_config.sh"
             common_success
             ;;

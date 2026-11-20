@@ -17,6 +17,14 @@ cp scripts/lang/chs/6_core_config.lang "$STAGE/lang/chs/6_core_config.lang"
 cp scripts/lang/en/6_core_config.lang  "$STAGE/lang/en/6_core_config.lang"
 cp scripts/lang/chs/bot_tg.lang      "$STAGE/lang/chs/bot_tg.lang"
 cp scripts/lang/en/bot_tg.lang       "$STAGE/lang/en/bot_tg.lang"
+# DNS/fake-ip 优化
+cp scripts/menus/dns.sh              "$STAGE/menus/dns.sh"
+cp scripts/starts/clash_modify.sh    "$STAGE/starts/clash_modify.sh"
+cp scripts/starts/singbox_modify.sh  "$STAGE/starts/singbox_modify.sh"
+cp scripts/libs/get_ecsip.sh         "$STAGE/libs/get_ecsip.sh"
+cp scripts/libs/get_config.sh        "$STAGE/libs/get_config.sh"
+cp scripts/lang/chs/dns.lang         "$STAGE/lang/chs/dns.lang"
+cp scripts/lang/en/dns.lang          "$STAGE/lang/en/dns.lang"
 cp public/servers.list               "$STAGE/servers.list"
 cp public/servers_chs.list           "$STAGE/servers_chs.list"
 cp public/servers_en.list            "$STAGE/servers_en.list"
@@ -33,8 +41,11 @@ https://dler.pro/auth/register?affid=89698
 https://pub.bigmeok.me?code=2PuWY9I7
 EOF'''
 new='EOF'
-assert old in s, 'bot_tg.sh help block not found in package copy'
-open(p,'w',encoding='utf-8').write(s.replace(old,new))
+if old in s:
+    open(p,'w',encoding='utf-8').write(s.replace(old,new))
+    print('bot_tg.sh: promo block removed')
+else:
+    print('bot_tg.sh: promo block already absent (idempotent)')
 PY
 
 # tools/tg_bot.sh 不在包内（独立工具），无需同步

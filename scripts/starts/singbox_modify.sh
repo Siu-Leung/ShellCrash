@@ -43,6 +43,37 @@ parse_singbox_dns() { #dns转换工具
     echo '"type": "'"$type"'", "server": "'"$server"'", "server_port": '"$port"','
 }
 
+# 安全加固：把 ShellCrash 的通配符规则文件正确转换为 sing-box 的 domain/domain_suffix/domain_regex 规则。
+# 输入行约定：纯域名 -> domain；*.example.com / +.example.com -> domain_suffix；含内部 * 的 -> domain_regex；
+# '#' 开头或空行忽略。输出三个全局变量：_fp_domain / _fp_suffix / _fp_regex（逗号分隔的 JSON 字符串片段）。
+sb_convert_domain_rules() {
+    _fp_domain=''; _fp_suffix=''; _fp_regex=''
+    for _fp_file in "$@"; do
+        [ -f "$_fp_file" ] || continue
+        while IFS= read -r _fp_line || [ -n "$_fp_line" ]; do
+            _fp_line=$(printf '%s' "$_fp_line" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+            case "$_fp_line" in '' | \#*) continue ;; esac
+            case "$_fp_line" in
+                '*.'* | '+.'*)
+                    # 后缀通配：去掉前缀符号
+                    _fp_v=${_fp_line#[*+].}
+                    [ -n "$_fp_v" ] && _fp_suffix="$_fp_suffix\"$_fp_v\", "
+                    ;;
+                *'*'*)
+                    # 内部通配：转正则，先转义点，再把 * 换成 .*
+                    _fp_v=$(printf '%s' "$_fp_line" | sed 's/\./\\./g; s/\*/.*/g')
+                    [ -n "$_fp_v" ] && _fp_regex="$_fp_regex\"$_fp_v\", "
+                    ;;
+                *)
+                    # 纯域名（含 geosite:xxx / rule-set:xxx 这类保留原样由内核解析）
+                    _fp_domain="$_fp_domain\"$_fp_line\", "
+                    ;;
+            esac
+        done <"$_fp_file"
+    done
+    _fp_domain=${_fp_domain%, }; _fp_suffix=${_fp_suffix%, }; _fp_regex=${_fp_regex%, }
+}
+
 extract_base_jsons() { #提取配置文件以获得outbounds.json,providers.json及route.json
     "$TMPDIR"/CrashCore format -c $core_config >"$TMPDIR"/format.json
     echo '{' >"$TMPDIR"/jsons/outbounds.json
@@ -129,6 +160,10 @@ EOF
 }
 
 gen_dns() {
+    # 安全加固：每次生成前清空规则片段变量，避免分支间残留
+    fake_ip_filter_domain=''; fake_ip_filter_suffix=''; fake_ip_filter_regex=''
+    custom_direct_domain_rule=''; custom_direct_suffix_rule=''; custom_direct_regex_rule=''
+    direct_dns=''; proxy_dns=''; client_subnet=''
     #生成dns.json
     [ "$ipv6_dns" != "OFF" ] && strategy='prefer_ipv4' || strategy='ipv4_only'
     #获取detour出口
@@ -152,17 +187,16 @@ gen_dns() {
     }
     [ "$dns_mod" = "fake-ip" ] || [ "$dns_mod" = "mix" ] && {
         global_dns=dns_fakeip
-        fake_ip_filter_domain=$(cat ${CRASHDIR}/configs/fake_ip_filter ${CRASHDIR}/configs/fake_ip_filter.list 2>/dev/null | grep -Ev '#|\*|\+|Mijia' | sed '/^\s*$/d' | awk '{printf "\"%s\", ",$1}' | sed 's/, $//')
-        fake_ip_filter_suffix=$(cat ${CRASHDIR}/configs/fake_ip_filter ${CRASHDIR}/configs/fake_ip_filter.list 2>/dev/null | grep -v '.\*' | grep -E '\*|\+' | sed 's/^[*+]\.//' | awk '{printf "\"%s\", ",$1}' | sed 's/, $//')
-        fake_ip_filter_regex=$(cat ${CRASHDIR}/configs/fake_ip_filter ${CRASHDIR}/configs/fake_ip_filter.list 2>/dev/null | grep '.\*' | sed 's/\./\\\\./g' | sed 's/\*/.\*/' | sed 's/^+/.\+/' | awk '{printf "\"%s\", ",$1}' | sed 's/, $//')
+        # 安全加固：统一、正确地分类转换 fake-ip 过滤规则与用户直连域名
+        sb_convert_domain_rules "$CRASHDIR/configs/fake_ip_filter" "$CRASHDIR/configs/fake_ip_filter.list"
+        fake_ip_filter_domain=$_fp_domain; fake_ip_filter_suffix=$_fp_suffix; fake_ip_filter_regex=$_fp_regex
         [ -n "$fake_ip_filter_domain" ] && fake_ip_filter_domain="{ \"domain\": [$fake_ip_filter_domain], \"server\": \"dns_direct\" },"
         [ -n "$fake_ip_filter_suffix" ] && fake_ip_filter_suffix="{ \"domain_suffix\": [$fake_ip_filter_suffix], \"server\": \"dns_direct\" },"
         [ -n "$fake_ip_filter_regex" ] && fake_ip_filter_regex="{ \"domain_regex\": [$fake_ip_filter_regex], \"server\": \"dns_direct\" },"
         # 用户自定义直连域名
         if [ -s "$CRASHDIR/configs/dns_direct_domains" ]; then
-            custom_direct_domain=$(cat "$CRASHDIR/configs/dns_direct_domains" | grep -Ev '#|\*|\+' | sed '/^\s*$/d' | awk '{printf "\"%s\", ",$1}' | sed 's/, $//')
-            custom_direct_suffix=$(cat "$CRASHDIR/configs/dns_direct_domains" | grep '\*' | grep -v '.\*' | sed 's/\*\.//' | awk '{printf "\"%s\", ",$1}' | sed 's/, $//')
-            custom_direct_regex=$(cat "$CRASHDIR/configs/dns_direct_domains" | grep '.\*' | sed 's/\./\\\\./g' | sed 's/\*/.\*/' | awk '{printf "\"%s\", ",$1}' | sed 's/, $//')
+            sb_convert_domain_rules "$CRASHDIR/configs/dns_direct_domains"
+            custom_direct_domain=$_fp_domain; custom_direct_suffix=$_fp_suffix; custom_direct_regex=$_fp_regex
             [ -n "$custom_direct_domain" ] && custom_direct_domain_rule="{ \"domain\": [$custom_direct_domain], \"server\": \"dns_direct\" },"
             [ -n "$custom_direct_suffix" ] && custom_direct_suffix_rule="{ \"domain_suffix\": [$custom_direct_suffix], \"server\": \"dns_direct\" },"
             [ -n "$custom_direct_regex" ] && custom_direct_regex_rule="{ \"domain_regex\": [$custom_direct_regex], \"server\": \"dns_direct\" },"
@@ -174,11 +208,10 @@ gen_dns() {
     [ "$dns_mod" = "route" ] && {
         global_dns=dns_proxy
         direct_dns='{ "rule_set": ["cn"], "server": "dns_direct" }'
-        # 用户自定义直连域名
+        # 用户自定义直连域名（安全加固：统一转换函数）
         if [ -s "$CRASHDIR/configs/dns_direct_domains" ]; then
-            custom_direct_domain=$(cat "$CRASHDIR/configs/dns_direct_domains" | grep -Ev '#|\*|\+' | sed '/^\s*$/d' | awk '{printf "\"%s\", ",$1}' | sed 's/, $//')
-            custom_direct_suffix=$(cat "$CRASHDIR/configs/dns_direct_domains" | grep '\*' | grep -v '.\*' | sed 's/\*\.//' | awk '{printf "\"%s\", ",$1}' | sed 's/, $//')
-            custom_direct_regex=$(cat "$CRASHDIR/configs/dns_direct_domains" | grep '.\*' | sed 's/\./\\\\./g' | sed 's/\*/.\*/' | awk '{printf "\"%s\", ",$1}' | sed 's/, $//')
+            sb_convert_domain_rules "$CRASHDIR/configs/dns_direct_domains"
+            custom_direct_domain=$_fp_domain; custom_direct_suffix=$_fp_suffix; custom_direct_regex=$_fp_regex
             [ -n "$custom_direct_domain" ] && custom_direct_domain_rule="{ \"domain\": [$custom_direct_domain], \"server\": \"dns_direct\" },"
             [ -n "$custom_direct_suffix" ] && custom_direct_suffix_rule="{ \"domain_suffix\": [$custom_direct_suffix], \"server\": \"dns_direct\" },"
             [ -n "$custom_direct_regex" ] && custom_direct_regex_rule="{ \"domain_regex\": [$custom_direct_regex], \"server\": \"dns_direct\" },"

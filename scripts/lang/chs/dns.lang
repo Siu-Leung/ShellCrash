@@ -1,4 +1,9 @@
 #=====DNS主菜单=====
+DNS_INPUT_INVALID="输入无效：域名/规则不能含空格、逗号或引号！"
+DNS_DUPLICATE="该项已存在，已跳过重复添加。"
+DNS_RESPECT_RULES="DNS遵循分流规则(respect-rules)"
+DNS_RESPECT_RULES_DESC="关闭可避免与nameserver-policy语义重叠导致的解析异常(仅meta内核)"
+DNS_FAKEIP_RANGE="fake-ip网段设置"
 DNS_CURRENT_MODE="当前DNS运行模式为："
 DNS_RESTART_NOTICE="切换模式后需要手动重启服务以生效！"
 

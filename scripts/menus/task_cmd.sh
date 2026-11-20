@@ -34,7 +34,8 @@ check_update(){ #检查更新工具
 update_core(){ #自动更新内核
     #检查版本
     check_update bin/version
-    crash_v_new=$(eval echo \$${crashcore}_v)
+    # 安全加固：eval 取间接变量有注入风险，改用白名单函数（get_config.sh 已在本文件头部加载）
+    crash_v_new=$(get_version_var "${crashcore}_v")
     if [ -z "$crash_v_new" -o "$crash_v_new" = "$core_v" ];then
         task_logger "$TASK_CMD_CORE_SKIP"
         return 0
@@ -94,7 +95,8 @@ update_mmdb(){ #自动更新数据库
         check_update bin/version
         geo_v="$(echo $2 | awk -F "." '{print $1}')_v" #获取版本号类型比如Country_v
         geo_v_new=$GeoIP_v
-        geo_v_now=$(eval echo \$$geo_v)
+        # 安全加固：同上，geo_v 由文件名拼接而来，改白名单读取杜绝注入
+        geo_v_now=$(get_version_var "$geo_v")
         if [ -z "$geo_v_new" -o "$geo_v_new" = "$geo_v_now" ];then
             task_logger "$TASK_CMD_DB_SKIP_PREFIX$2$TASK_CMD_DB_SKIP_SUFFIX"
         else

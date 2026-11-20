@@ -37,3 +37,43 @@ routing_mark=$((fwmark + 2))
 #   已有配置中显式写过 skip_cert 的用户不受影响（向下兼容）。
 # ---------------------------------------------------------------------------
 [ -z "$skip_cert" ] && skip_cert=OFF
+
+# ---------------------------------------------------------------------------
+# get_version_var - 按变量名安全读取内核/数据库版本（安全加固，替代 eval）
+# 用途：原代码用 `eval echo \$$var` 间接取变量值，若 var 来自被篡改的配置可导致命令执行。
+# 参数：$1 = 版本变量名（如 meta_v / Country_v / china_ip_list_v）
+# 返回：回显对应变量的值；变量名不在白名单内时回显空（不执行任何命令）
+# 设计说明：
+#   - 采用 case 白名单而非 eval：只暴露脚本内部已知的 *_v 变量，杜绝注入面。
+#   - 白名单覆盖所有内核类型(meta/clash/clashpre/singbox/singboxr)与数据库版本变量。
+#   - 新增版本变量时必须同步在此登记，否则读取为空——这是有意的安全默认值。
+# ---------------------------------------------------------------------------
+get_version_var() {
+    # 每个分支直接引用具体变量，完全不经 eval —— 即使 $1 被注入也无法执行代码
+    case "$1" in
+        # 内核版本变量
+        meta_v)            printf '%s' "$meta_v" ;;
+        clash_v)           printf '%s' "$clash_v" ;;
+        clashpre_v)        printf '%s' "$clashpre_v" ;;
+        singbox_v)         printf '%s' "$singbox_v" ;;
+        singboxr_v)        printf '%s' "$singboxr_v" ;;
+        # 数据库版本变量（geo_v 由文件名首字母段拼成，注意 GeoSite/GeoIP 的大小写变体）
+        Country_v)         printf '%s' "$Country_v" ;;
+        cn_mini_v)         printf '%s' "$cn_mini_v" ;;
+        cn_ip_v)           printf '%s' "$cn_ip_v" ;;
+        cn_ipv6_v)         printf '%s' "$cn_ipv6_v" ;;
+        china_ip_list_v)   printf '%s' "$china_ip_list_v" ;;
+        china_ipv6_list_v) printf '%s' "$china_ipv6_list_v" ;;
+        GeoSite_v)         printf '%s' "$GeoSite_v" ;;
+        geosite_v)         printf '%s' "$geosite_v" ;;
+        GeoIP_v)           printf '%s' "$GeoIP_v" ;;
+        geoip_v)           printf '%s' "$geoip_v" ;;
+        geoip_cn_v)        printf '%s' "$geoip_cn_v" ;;
+        geosite_cn_v)      printf '%s' "$geosite_cn_v" ;;
+        mrs_v)             printf '%s' "$mrs_v" ;;
+        srs_v)             printf '%s' "$srs_v" ;;
+        mrs_geosite_cn_v)  printf '%s' "$mrs_geosite_cn_v" ;;
+        srs_geoip_cn_v)    printf '%s' "$srs_geoip_cn_v" ;;
+        srs_geosite_cn_v)  printf '%s' "$srs_geosite_cn_v" ;;
+    esac
+}

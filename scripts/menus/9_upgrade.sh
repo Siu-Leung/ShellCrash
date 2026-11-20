@@ -22,7 +22,10 @@ upgrade() {
             checkupdate
         fi
         [ -z "$core_v" ] && core_v=$crashcore
-        core_v_new=$(eval echo \$"$crashcore"_v)
+        # 安全加固：原用 eval echo \$${crashcore}_v 间接取版本，crashcore 来自可编辑配置，
+        # 存在命令注入面；改为白名单函数，只读取已知版本变量。
+        . "$CRASHDIR"/libs/get_config.sh 2>/dev/null
+        core_v_new=$(get_version_var "${crashcore}_v")
         top_box "\033[30;47m$UPG_TITLE\033[0m" \
             "" \
             "$UPG_CUR_DIR_SPACE(\033[32m$CRASHDIR\033[0m)：\033[36m$(dir_avail "$CRASHDIR" -h)\033[0m"

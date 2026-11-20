@@ -1,4 +1,4 @@
-<h1 align="center">ShellCrash</h1>
+<h1 align="center">ShellCrash（零信任安全加固版）</h1>
 
 <p align="center">
   <a target="_blank" href="https://github.com/MetaCubeX/mihomo/releases">
@@ -10,147 +10,108 @@
 </p>
 
 <p align="center">
-  <strong>一款在 Shell 环境下便捷部署与管理 mihomo/sing-box 内核的脚本工具</strong>
+  <strong>面向 Linux 与路由器的专业、干净、自主可控的 Mihomo / Sing-Box 代理管理工具</strong>
 </p>
 
 <p align="center">
-  简体中文 | <a href="README.md">English</a>
+  简体中文 | <a href="README.md">English</a> | <a href="SECURITY_HARDENING.md">安全审计与加固清单</a>
 </p>
 
----
+## 核心特性
 
-## :rocket: 核心特性
+- **零信任与去外链**：彻底移除第三方中转服务器、在线订阅转换站、公共推送机器人、外部在线面板与推广引流；所有脚本、规则、面板、数据库与内核均由本仓库自主维护与分发（默认锁定 `dev` 分支，`bin/` 走自主编译的 `update` 分支）。
+- **零外泄本地订阅拉取与转换**：订阅链接只直连你自己的原始订阅源，在本机使用纯 POSIX `sh`/`awk`/`base64` 自动识别并解码 Base64、明文 URI 列表（`ss`/`vmess`/`vless`/`trojan`/`hy2`/`tuic`/`anytls` 等）、Clash YAML 与 Sing-Box JSON，本地正则过滤后套用本仓库规则模板生成纯本地 `type: file` / `type: local` 配置。
+- **默认安全边界**：安装脚本、下载器、代理客户端与 Bot 默认强制开启 TLS 证书校验；纯净/本机模式（`firewall_area=4`）默认仅绑定 `127.0.0.1`，防止无密码端口暴露在公网；配置写入原子防注入，消除间接变量 `eval`。
+- **多内核与全场景 Linux 支持**：支持 Mihomo（Meta）、Sing-Box、Sing-BoxR 内核切换；兼容 Debian/Ubuntu/CentOS/Alpine/Arch 等标准 Linux、OpenWrt、Padavan、华硕/梅林及 Docker 容器。
+- **自主供应链构建**：内置 GitHub Actions 工作流（带 `update` 分支并发锁与 rebase 防冲突），可随时直接从 `MetaCubeX/mihomo`、`SagerNet/sing-box`、`reF1nd/sing-box` 官方源码重新交叉编译全架构内核与最新 GeoData/面板。
 
-- **多内核支持**：在 Shell 环境下便捷管理及切换 **mihomo** 与 **sing-box** 内核。
-- **灵活配置管理**：支持在线导入订阅连结及配置文件，简化配置流程。
-- **自动化任务**：支持配置定时任务，实现配置文件与规则的自动定时更新。
-- **图形化面板**：支持在线安装并使用本地 Web 面板（Dashboard），直观管理内置规则与流量。
-- **多模式运行**：支持路由模式、本机模式等多种流量转发模式切换。
-- **一键维护**：内置脚本在线更新功能，保持版本与功能的及时更迭。
-
-## :computer: 设备支持
-
-ShellCrash 旨在兼容绝大多数基于 Linux 内核的网络设备：
-
-* **路由器设备**：支持各种基于 OpenWrt 或其二次开发固件（如 小米路由、网件路由等设备）。
-* **Linux 服务器**：支持运行标准 Linux/GNU发行版（如 Debian、CentOS、Armbian、Ubuntu 等）的设备。
-* **第三方固件**：兼容 Padavan（保守模式）、潘多拉固件以及华硕/梅林固件。
-* **其他设备**：兼容各种基于Linux/GNU或者Linux/busybox开发的设备。
-* **Docker**：部分可能不兼容的设备（如群辉、PVE），支持docker环境运行。
-
-> 更多设备支持，请提交 [Issue](https://github.com/Siu-Leung/ShellCrash/issues) 反馈（请附上设备型号及 `uname -a` 命令的输出信息）。
-
----
-
-## :hammer_and_wrench: 安装指南
-
-> [!TIP]
-> 若遇到连接失败或SSL相关问题，请尝试切换至其他安装镜像站。
-
-### 前置条件
-1. 确保设备已开启 **SSH** 并获得 **Root 权限**（带图形介面的 Linux 系统可直接使用终端）。
-2. 使用 SSH 工具（如 Putty、JuiceSSH、或系统自带终端）连接至设备。
-
-### :penguin: 标准 Linux 设备安装
+## 安装指南
 
 > [!IMPORTANT]
-> 请以 root 用户进行安装。
+> 请以 `root` 用户执行安装。以下命令默认开启严格的 TLS 证书校验（仅在缺少根证书的老旧设备上，才建议临时通过 `SKIP_CERT=1` 放行）。
 
-> 使用 wget 安装（jsDelivr CDN 源）
+### 标准 Linux / 路由器一键安装
+
+**通过 jsDelivr CDN 源（推荐）：**
+
 ```sh
 export url='https://cdn.jsdelivr.net/gh/Siu-Leung/ShellCrash@dev' \
-  && wget -q --no-check-certificate -O /tmp/install.sh $url/install.sh \
-  && bash /tmp/install.sh \
-  && . /etc/profile &> /dev/null
+  && sh -c "$(curl -fsSL $url/install.sh)" \
+  && . /etc/profile >/dev/null 2>&1
 ```
 
-### :satellite: 路由器设备安装
+**通过 GitHub Raw 直连源（海外服务器或已有代理环境）：**
 
-**使用 `curl` 安装：**
-> GitHub 源（推荐海外环境或具备代理环境使用）
 ```sh
 export url='https://raw.githubusercontent.com/Siu-Leung/ShellCrash/dev' \
-  && sh -c "$(curl -kfsSl $url/install.sh)" \
-  && . /etc/profile &> /dev/null
-```
-
-> 或 jsDelivr CDN 源
-
-```sh
-export url='https://cdn.jsdelivr.net/gh/Siu-Leung/ShellCrash@dev' \
-  && sh -c "$(curl -kfsSl $url/install.sh)" \
-  && . /etc/profile &> /dev/null
+  && sh -c "$(curl -fsSL $url/install.sh)" \
+  && . /etc/profile >/dev/null 2>&1
 ```
 
 **使用 `wget` 安装：**
-> GitHub 源（推荐海外环境或具备代理环境使用）
-```sh
-export url='https://raw.githubusercontent.com/Siu-Leung/ShellCrash/dev' \
-  && wget -q --no-check-certificate -O /tmp/install.sh $url/install.sh \
-  && sh /tmp/install.sh \
-  && . /etc/profile &> /dev/null
-```
 
-> 或 jsDelivr CDN 源
 ```sh
 export url='https://cdn.jsdelivr.net/gh/Siu-Leung/ShellCrash@dev' \
-  && wget -q --no-check-certificate -O /tmp/install.sh $url/install.sh \
+  && wget -q -O /tmp/install.sh "$url/install.sh" \
   && sh /tmp/install.sh \
-  && . /etc/profile &> /dev/null
+  && . /etc/profile >/dev/null 2>&1
 ```
 
-### :pager: 老旧设备使用低版本 `wget` 安装
+### Alpine Linux 虚拟机
 
-
-### :cloud: 虚拟机
-- **Alpine Linux 虚拟机**：强烈建议使用 Alpine 镜像以获得最佳兼容性
 ```sh
-# 安装必要依赖
-apk add --no-cache wget openrc ca-certificates tzdata nftables iproute2 dcron
-
-# 执行安装命令
+apk add --no-cache curl wget openrc ca-certificates tzdata nftables iproute2 dcron
 export url='https://cdn.jsdelivr.net/gh/Siu-Leung/ShellCrash@dev' \
-  && wget -q --no-check-certificate -O /tmp/install.sh $url/install.sh \
-  && sh /tmp/install.sh \
-  && . /etc/profile &> /dev/null
+  && sh -c "$(curl -fsSL $url/install.sh)" \
+  && . /etc/profile >/dev/null 2>&1
 ```
 
- ### :whale: Docker 
+### Docker 与离线安装
 
- 请从本仓库 `docker/` 目录自行构建 Docker 镜像。
+- **Docker**：使用本仓库 `docker/` 目录下的 `Dockerfile` 与 `compose.yml` 自行构建部署。
+- **本地离线安装**：从本仓库 `dev` 或 `update` 分支下载 `ShellCrash.tar.gz`，上传至目标设备 `/tmp/` 目录后解压并运行 `init.sh` 完成初始化。
 
+## 快速上手
 
-### :package: 本地安装
+安装完成后，在终端输入以下命令进入交互菜单：
 
-若无法进行在线安装，请从本仓库 `update` 分支下载 `ShellCrash.tar.gz` 并按 README 中的本地安装步骤操作。
-
----
-
-## :book: 使用说明
-
-安装完成后，在终端输入以下指令即可启动管理界面：
-
-```shell
-crash        # 启动脚本交互选单
-crash -h     # 查看命令帮助列表
+```sh
+crash        # 启动交互管理菜单
+crash -h     # 查看命令行帮助
 ```
 
-### 运行依赖说明
-| 依赖组件 | 必要性 | 说明 |
+### 零外泄订阅配置（推荐流程）
+
+1. 进入 `6 配置文件管理 -> a) 添加提供者`，粘贴你的订阅链接（支持 Clash YAML、Base64 通用订阅、明文节点分享链接或本地文件）。
+2. 返回 `6 配置文件管理`，选择 **`c) 本地拉取并转换配置文件（零外泄）`**。
+3. 可按需设置排除/包含节点正则、切换本地/本仓库规则模板、指定拉取 UA，点击 `1)` 即可在本机完成拉取、解码、过滤与规则合成。
+4. 如需自动定时更新，在 `5 定时任务` 中启用 `104 更新订阅并重启` 或 `105 热更新订阅`，后台同样 100% 走本机直拉转换。
+
+### 自主重编内核与资源（供应链清零）
+
+在本仓库 GitHub **Actions** 页面手动触发以下工作流即可全部替换为自己编译的二进制与最新规则库：
+
+- `core_easy_update`：输入 `meta`、`singbox` 或 `singboxr`，从官方源码交叉编译并推送至 `update` 分支。
+- `bin_update`：自动更新最新 Zashboard / Metacubexd 面板、GeoIP / GeoSite / `.mrs` / `.srs` 数据库、CA 根证书，并同步 `dev` 分支的 `ShellCrash.tar.gz`。
+
+## 运行依赖
+
+| 组件 | 必要性 | 说明 |
 | :--- | :--- | :--- |
-| curl / wget | 必须 | 缺少时将无法进行节点保存、在线安装及更新操作 |
-| iptables / nftables | 重要 | 缺少时仅能运行于纯淨模式 |
-| crontab | 较低 | 缺少时定时任务功能将失效 |
-| net-tools | 极低 | 缺少时无法自动检测端口占用 |
-| ubus / iproute-doc | 极低 | 缺少时无法自动获取本机 Host 地址 |
+| `curl` 或 `wget` | 必须 | 用于安装、本地拉取订阅、更新内核与规则库 |
+| `iptables` 或 `nftables` | 重要 | 透明代理必需；缺少时自动降级为纯净/本机模式 |
+| `ca-certificates` | 推荐 | 启用严格 TLS 证书校验所需 |
+| `crontab` | 可选 | 定时自动更新订阅与内核 |
 
----
+## 开发、打包与回归测试
 
-## :link: 相关链接
-- 更新日志：[Release History](https://github.com/Siu-Leung/ShellCrash/releases)
+详细安全审计与加固记录请参阅 [SECURITY_HARDENING.md](SECURITY_HARDENING.md)。修改 `scripts/` 或 `public/` 源码后，务必同步重建预打包文件并运行全部离线回归测试：
 
----
+```sh
+sh sync_pkg.sh
+for t in tests/test_*.sh; do sh "$t"; done
+```
 
-## :scroll: 许可协议
+## 许可协议
 
-本项目采用[GNU通用公共许可证第3.0版](LICENSE.txt)授权。
+本项目采用 [GNU 通用公共许可证第 3.0 版（GPL-3.0）](LICENSE.txt) 授权。

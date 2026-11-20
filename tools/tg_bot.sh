@@ -22,16 +22,20 @@ setproxy(){
 }
 webget() {
 	setproxy
+	cert_flag=""
+	[ "$skip_cert" = "ON" ] && cert_flag="-k"
 	if curl --version >/dev/null 2>&1; then
-		curl -kfsSl --connect-timeout 3 $1 2>/dev/null
+		curl $cert_flag -fsSl --connect-timeout 3 "$1" 2>/dev/null
 	else
-		wget_proxy on -q --timeout=3 -O - $1
+		wget_proxy on -q --timeout=3 -O - "$1"
 	fi
 }
 webpost() {
 	setproxy
+	cert_flag=""
+	[ "$skip_cert" = "ON" ] && cert_flag="-k"
 	if curl --version >/dev/null 2>&1; then
-		curl -kfsSl -X POST --connect-timeout 3 -H "Content-Type: application/json; charset=utf-8" "$1" -d "$2" >/dev/null 2>&1
+		curl $cert_flag -fsSl -X POST --connect-timeout 3 -H "Content-Type: application/json; charset=utf-8" "$1" -d "$2" >/dev/null 2>&1
 	else
 		wget_proxy on -q --timeout=3 --method=POST --header="Content-Type: application/json; charset=utf-8" --body-data="$2" "$1"
 	fi
@@ -42,12 +46,9 @@ send_msg() {
 }
 send_help(){
     TEXT=$(cat <<EOF
-进群讨论：
-https://t.me/+RKujv98Gbx5zGY-P
-项目地址：
-https://github.com/juewuy/ShellCrash
-相关教程：
-https://juewuy.github.io
+ShellCrash Telegram 机器人命令：
+/crash - 呼出控制菜单
+/help - 查看帮助
 EOF
 )
 	send_msg "$TEXT"

@@ -81,9 +81,18 @@ set_core_config() {
             fi
             ;;
         c)
-            # 安全加固：在线订阅转换会把订阅链接拼入第三方转换站（有偷订阅风险），已禁用。
-            # 请用「在线获取此配置文件（不使用订阅转换）」或 Mihomo 原生 HTTP provider。
-            msg_alert "\033[31m$CORECFG_SUBCONV_DISABLED\033[0m"
+            # 安全加固：已移除第三方在线订阅转换（原 CORECFG_SUBCONV_DISABLED），
+            # 升级为零外泄「本地拉取并转换配置文件」，订阅只直连原始源并在本机解码合成。
+            if [ -s "$CRASHDIR"/configs/providers.cfg ] || [ -s "$CRASHDIR"/configs/providers_uri.cfg ]; then
+                if [ "$crashcore" = meta ] || [ "$crashcore" = singboxr ]; then
+                    . "$CRASHDIR"/menus/subconverter.sh
+                    subconverter
+                else
+                    msg_alert "\033[33m$CORECFG_CORE_ONLY\033[0m"
+                fi
+            else
+                msg_alert "$CORECFG_ADD_PROVIDER_FIRST"
+            fi
             ;;
         d)
             comp_box "\033[33m$CORECFG_CLEAR_WARN\033[0m" \
@@ -270,14 +279,32 @@ setproviders() {
             fi
             ;;
         c)
-            if [ -n "$name" ] && [ -n "$link$link_uri" ]; then
+            # 安全加固：单订阅同样走零外泄本地拉取并转换，绝不发送给第三方转换站
+            if [ -n "$name" ] && [ -n "$link" ]; then
                 saveproviders
-                [ -n "$link" ] && Url="$link"
-                [ -n "$link_uri" ] && Url=$(echo "$name $link_uri" | awk '{ print ($1=="vmess" ? $2 : $2 "#" $1) }')
-                Https=''
-                setconfig Url "'$Url'"
+                . "$CRASHDIR"/libs/local_sub_convert.sh
+                if local_sub_convert "$name" "$link" "$interval" "$interval2" "$ua" "#$exclude_w" "#$include_w"; then
+                    setconfig local_sub ON
+                    setconfig Https
+                    setconfig Url
+                    comp_box "$CORECFG_START_APPLY"
+                    btm_box "1) $CORECFG_YES" \
+                        "0) $CORECFG_NO"
+                    read -r -p "$COMMON_INPUT> " res
+                    if [ "$res" = 1 ]; then
+                        start_core
+                    else
+                        main_menu
+                    fi
+                    exit
+                else
+                    msg_alert "\033[31m$CORECFG_LOCAL_SUB_FAILED\033[0m"
+                fi
+            elif [ -n "$name" ] && [ -n "$link_uri" ]; then
+                saveproviders
+                setconfig local_sub ON
                 setconfig Https
-                # 获取在线文件
+                setconfig Url
                 jump_core_config
             else
                 msg_alert "\033[31m$CORECFG_FILL_REQUIRED\033[0m"

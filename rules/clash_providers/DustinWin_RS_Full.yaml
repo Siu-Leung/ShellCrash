@@ -38,7 +38,7 @@ rule-providers:
     behavior: domain
     format: mrs
     path: ./ruleset/ads.mrs
-    url: "https://testingcf.jsdelivr.net/gh/DustinWin/ruleset_geodata@mihomo-ruleset/ads.mrs"
+    url: "https://cdn.jsdelivr.net/gh/DustinWin/ruleset_geodata@mihomo-ruleset/ads.mrs"
     interval: 86400
 
   private:
@@ -46,7 +46,7 @@ rule-providers:
     behavior: domain
     format: mrs
     path: ./ruleset/private.mrs
-    url: "https://testingcf.jsdelivr.net/gh/DustinWin/ruleset_geodata@mihomo-ruleset/private.mrs"
+    url: "https://cdn.jsdelivr.net/gh/DustinWin/ruleset_geodata@mihomo-ruleset/private.mrs"
     interval: 86400
 
   microsoft-cn:
@@ -54,7 +54,7 @@ rule-providers:
     behavior: domain
     format: mrs
     path: ./ruleset/microsoft-cn.mrs
-    url: "https://testingcf.jsdelivr.net/gh/DustinWin/ruleset_geodata@mihomo-ruleset/microsoft-cn.mrs"
+    url: "https://cdn.jsdelivr.net/gh/DustinWin/ruleset_geodata@mihomo-ruleset/microsoft-cn.mrs"
     interval: 86400
 
   apple-cn:
@@ -62,7 +62,7 @@ rule-providers:
     behavior: domain
     format: mrs
     path: ./ruleset/apple-cn.mrs
-    url: "https://testingcf.jsdelivr.net/gh/DustinWin/ruleset_geodata@mihomo-ruleset/apple-cn.mrs"
+    url: "https://cdn.jsdelivr.net/gh/DustinWin/ruleset_geodata@mihomo-ruleset/apple-cn.mrs"
     interval: 86400
 
   google-cn:
@@ -70,7 +70,7 @@ rule-providers:
     behavior: domain
     format: mrs
     path: ./ruleset/google-cn.mrs
-    url: "https://testingcf.jsdelivr.net/gh/DustinWin/ruleset_geodata@mihomo-ruleset/google-cn.mrs"
+    url: "https://cdn.jsdelivr.net/gh/DustinWin/ruleset_geodata@mihomo-ruleset/google-cn.mrs"
     interval: 86400
 
   games-cn:
@@ -78,7 +78,7 @@ rule-providers:
     behavior: domain
     format: mrs
     path: ./ruleset/games-cn.mrs
-    url: "https://testingcf.jsdelivr.net/gh/DustinWin/ruleset_geodata@mihomo-ruleset/games-cn.mrs"
+    url: "https://cdn.jsdelivr.net/gh/DustinWin/ruleset_geodata@mihomo-ruleset/games-cn.mrs"
     interval: 86400
 
   games:
@@ -86,7 +86,7 @@ rule-providers:
     behavior: domain
     format: mrs
     path: ./ruleset/games.mrs
-    url: "https://testingcf.jsdelivr.net/gh/DustinWin/ruleset_geodata@mihomo-ruleset/games.mrs"
+    url: "https://cdn.jsdelivr.net/gh/DustinWin/ruleset_geodata@mihomo-ruleset/games.mrs"
     interval: 86400
 
   netflix:
@@ -94,7 +94,7 @@ rule-providers:
     behavior: domain
     format: mrs
     path: ./ruleset/netflix.mrs
-    url: "https://testingcf.jsdelivr.net/gh/DustinWin/ruleset_geodata@mihomo-ruleset/netflix.mrs"
+    url: "https://cdn.jsdelivr.net/gh/DustinWin/ruleset_geodata@mihomo-ruleset/netflix.mrs"
     interval: 86400
 
   youtube:
@@ -102,7 +102,7 @@ rule-providers:
     behavior: domain
     format: mrs
     path: ./ruleset/youtube.mrs
-    url: "https://testingcf.jsdelivr.net/gh/DustinWin/ruleset_geodata@mihomo-ruleset/youtube.mrs"
+    url: "https://cdn.jsdelivr.net/gh/DustinWin/ruleset_geodata@mihomo-ruleset/youtube.mrs"
     interval: 86400
 
   media:
@@ -110,7 +110,7 @@ rule-providers:
     behavior: domain
     format: mrs
     path: ./ruleset/media.mrs
-    url: "https://testingcf.jsdelivr.net/gh/DustinWin/ruleset_geodata@mihomo-ruleset/media.mrs"
+    url: "https://cdn.jsdelivr.net/gh/DustinWin/ruleset_geodata@mihomo-ruleset/media.mrs"
     interval: 86400
 
   ai:
@@ -118,7 +118,7 @@ rule-providers:
     behavior: domain
     format: mrs
     path: ./ruleset/ai.mrs
-    url: "https://testingcf.jsdelivr.net/gh/DustinWin/ruleset_geodata@mihomo-ruleset/ai.mrs"
+    url: "https://cdn.jsdelivr.net/gh/DustinWin/ruleset_geodata@mihomo-ruleset/ai.mrs"
     interval: 86400
 
   networktest:
@@ -126,7 +126,7 @@ rule-providers:
     behavior: domain
     format: mrs
     path: ./ruleset/networktest.mrs
-    url: "https://testingcf.jsdelivr.net/gh/DustinWin/ruleset_geodata@mihomo-ruleset/networktest.mrs"
+    url: "https://cdn.jsdelivr.net/gh/DustinWin/ruleset_geodata@mihomo-ruleset/networktest.mrs"
     interval: 86400
 
   proxy:
@@ -134,7 +134,7 @@ rule-providers:
     behavior: domain
     format: mrs
     path: ./ruleset/proxy.mrs
-    url: "https://testingcf.jsdelivr.net/gh/DustinWin/ruleset_geodata@mihomo-ruleset/proxy.mrs"
+    url: "https://cdn.jsdelivr.net/gh/DustinWin/ruleset_geodata@mihomo-ruleset/proxy.mrs"
     interval: 86400
 
   cn:
@@ -142,7 +142,7 @@ rule-providers:
     behavior: domain
     format: mrs
     path: ./ruleset/cn.mrs
-    url: "https://testingcf.jsdelivr.net/gh/DustinWin/ruleset_geodata@mihomo-ruleset/cn.mrs"
+    url: "https://cdn.jsdelivr.net/gh/DustinWin/ruleset_geodata@mihomo-ruleset/cn.mrs"
     interval: 86400
 
   privateip:
@@ -150,7 +150,7 @@ rule-providers:
     behavior: ipcidr
     format: mrs
     path: ./ruleset/privateip.mrs
-    url: "https://testingcf.jsdelivr.net/gh/DustinWin/ruleset_geodata@mihomo-ruleset/privateip.mrs"
+    url: "https://cdn.jsdelivr.net/gh/DustinWin/ruleset_geodata@mihomo-ruleset/privateip.mrs"
     interval: 86400
 
   cnip:
@@ -158,7 +158,7 @@ rule-providers:
     behavior: ipcidr
     format: mrs
     path: ./ruleset/cnip.mrs
-    url: "https://testingcf.jsdelivr.net/gh/DustinWin/ruleset_geodata@mihomo-ruleset/cnip.mrs"
+    url: "https://cdn.jsdelivr.net/gh/DustinWin/ruleset_geodata@mihomo-ruleset/cnip.mrs"
     interval: 86400
 
   telegramip:
@@ -166,7 +166,7 @@ rule-providers:
     behavior: ipcidr
     format: mrs
     path: ./ruleset/telegramip.mrs
-    url: "https://testingcf.jsdelivr.net/gh/DustinWin/ruleset_geodata@mihomo-ruleset/telegramip.mrs"
+    url: "https://cdn.jsdelivr.net/gh/DustinWin/ruleset_geodata@mihomo-ruleset/telegramip.mrs"
     interval: 86400
 
   netflixip:
@@ -174,7 +174,7 @@ rule-providers:
     behavior: ipcidr
     format: mrs
     path: ./ruleset/netflixip.mrs
-    url: "https://testingcf.jsdelivr.net/gh/DustinWin/ruleset_geodata@mihomo-ruleset/netflixip.mrs"
+    url: "https://cdn.jsdelivr.net/gh/DustinWin/ruleset_geodata@mihomo-ruleset/netflixip.mrs"
     interval: 86400
 
   mediaip:
@@ -182,7 +182,7 @@ rule-providers:
     behavior: ipcidr
     format: mrs
     path: ./ruleset/mediaip.mrs
-    url: "https://testingcf.jsdelivr.net/gh/DustinWin/ruleset_geodata@mihomo-ruleset/mediaip.mrs"
+    url: "https://cdn.jsdelivr.net/gh/DustinWin/ruleset_geodata@mihomo-ruleset/mediaip.mrs"
     interval: 86400
 
 rules:

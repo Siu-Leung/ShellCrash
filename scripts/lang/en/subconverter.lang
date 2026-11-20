@@ -1,7 +1,8 @@
-SUBCONVERTER_MENU_GEN="Generate config including all nodes and subscriptions"
+SUBCONVERTER_LOCAL_BANNER="Zero-leak local conversion: fetches directly from origin and converts locally"
+SUBCONVERTER_MENU_GEN="Fetch all subscriptions and convert config locally"
 SUBCONVERTER_MENU_EXCLUDE="Set \033[31mexclude node regex\033[0m"
 SUBCONVERTER_MENU_INCLUDE="Set \033[32minclude node regex\033[0m"
-SUBCONVERTER_MENU_RULE="Select \033[33monline rule template\033[0m"
+SUBCONVERTER_MENU_RULE="Select \033[33mlocal/repo rule template\033[0m"
 SUBCONVERTER_MENU_SERVER="Select Subconverter server"
 SUBCONVERTER_MENU_UA="Custom browser UA"
 

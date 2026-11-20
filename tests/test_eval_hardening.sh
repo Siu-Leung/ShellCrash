@@ -1,4 +1,30 @@
 #!/bin/sh
+# 兼容未安装 ripgrep 的纯 Linux 环境：无 rg 时自动回退到 POSIX grep
+if ! command -v rg >/dev/null 2>&1; then
+    rg() {
+        _q=""; _F=""; _c=""; _n=""; _i=""; _pat=""
+        while [ $# -gt 0 ]; do
+            case "$1" in
+                -q) _q="-q"; shift ;;
+                -F) _F="-F"; shift ;;
+                -c) _c="-c"; shift ;;
+                -n) _n="-n"; shift ;;
+                -i) _i="-i"; shift ;;
+                -g) shift 2 ;;
+                --glob=*) shift ;;
+                -e) shift; _pat="$1"; shift ;;
+                --) shift; break ;;
+                -*) shift ;;
+                *) break ;;
+            esac
+        done
+        if [ -z "$_pat" ] && [ $# -gt 0 ]; then _pat="$1"; shift; fi
+        _mode="-E"; [ -n "$_F" ] && _mode="-F"
+        _rec=""
+        for _p in "$@"; do [ -d "$_p" ] && _rec="-r"; done
+        grep $_rec $_mode $_q $_c $_n $_i -- "$_pat" "$@"
+    }
+fi
 # eval 注入面消除离线回归：验证 get_version_var 白名单函数 + 三处 eval 已替换
 set -u
 ROOT=$(cd "$(dirname "$0")/.." && pwd)

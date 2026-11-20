@@ -1,4 +1,41 @@
 #!/bin/sh
+# 兼容未安装 ripgrep 的纯 Linux 环境：无 rg 时自动回退到 POSIX grep
+if ! command -v rg >/dev/null 2>&1; then
+    rg() {
+        _q=""; _F=""; _P=""; _c=""; _n=""; _i=""; _inv=""; _pat=""; _excl="--exclude-dir=.git"
+        while [ $# -gt 0 ]; do
+            case "$1" in
+                -q) _q="-q"; shift ;;
+                -F) _F="-F"; shift ;;
+                -P) _P="-P"; shift ;;
+                -c) _c="-c"; shift ;;
+                -n) _n="-n"; shift ;;
+                -i) _i="-i"; shift ;;
+                -v) _inv="-v"; shift ;;
+                -g)
+                    _g="$2"; shift 2
+                    case "$_g" in
+                        !*) _v="${_g#!}"; _v="${_v%/*}"; _excl="$_excl --exclude=$_v --exclude-dir=$_v" ;;
+                    esac
+                    ;;
+                --glob=!*)
+                    _v="${1#--glob=!}"; _v="${_v%/*}"; shift
+                    _excl="$_excl --exclude=$_v --exclude-dir=$_v"
+                    ;;
+                --glob=*) shift ;;
+                -e) shift; _pat="$1"; shift ;;
+                --) shift; break ;;
+                -*) shift ;;
+                *) break ;;
+            esac
+        done
+        if [ -z "$_pat" ] && [ $# -gt 0 ]; then _pat="$1"; shift; fi
+        _mode="-E"; [ -n "$_F" ] && _mode="-F"; [ -n "$_P" ] && _mode="-P"
+        _rec=""
+        for _p in "$@"; do [ -d "$_p" ] && _rec="-r"; done
+        grep $_rec $_mode $_q $_c $_n $_i $_inv $_excl -- "$_pat" "$@"
+    }
+fi
 # 去原作者化离线回归：断言源码树与 README 不再含上游引流/下载外链，
 # 所有仓库下载源统一指向本 fork（Siu-Leung/ShellCrash），并校验改过的 shell 脚本语法。
 # 用途：防止上游域名/仓库在后续改动中被重新引入。

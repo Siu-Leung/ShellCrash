@@ -260,7 +260,7 @@ gen_dns() {
         "type": "remote",
         "format": "binary",
         $srs_path
-        "url": "https://testingcf.jsdelivr.net/gh/DustinWin/ruleset_geodata@sing-box-ruleset/cn.srs",
+        "url": "https://cdn.jsdelivr.net/gh/Siu-Leung/ShellCrash@update/bin/geodata/srs_geosite_cn.srs",
         $detour_direct
       }
     ]

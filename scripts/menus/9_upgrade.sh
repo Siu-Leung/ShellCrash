@@ -984,7 +984,7 @@ setdb() {
             ;;
         1)
             db_type=zashboard
-            setconfig external_ui_url "https://github.com/Zephyruso/zashboard/releases/latest/download/dist-cdn-fonts.zip"
+            setconfig external_ui_url "https://raw.githubusercontent.com/Siu-Leung/ShellCrash/update/bin/dashboard/zashboard.tar.gz"
             dbdir
             ;;
         2)
@@ -1181,12 +1181,14 @@ setserver() {
             unset url_id_new
             ;;
         a)
-            release_type=stable
+            # 安全加固：本 fork 仅维护 dev 加固分支，避免误切回未加固的 stable/master 分支
+            release_type=dev
             [ -z "$url_id" ] && url_id=101
             saveserver
             ;;
         b)
-            release_type=master
+            # 安全加固：本 fork 仅维护 dev 加固分支，避免误切回未加固的 stable/master 分支
+            release_type=dev
             [ -z "$url_id" ] && url_id=101
             saveserver
             ;;

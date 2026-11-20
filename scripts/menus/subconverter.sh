@@ -1,40 +1,50 @@
 #!/bin/sh
 # Copyright (C) Juewuy
+# 安全加固：已移除所有第三方 Subconverter 服务器中转，改为本机直拉订阅 + 本地解码过滤 + 本地规则模板合成（零外泄）
 
 [ -n "$__IS_MODULE_SUBCONVERTER" ] && return
 __IS_MODULE_SUBCONVERTER=1
 
-[ -z "$rule_link" ] && rule_link=1
-[ -z "$server_link" ] && server_link=1
-
 load_lang subconverter
+load_lang providers
 
-LISTFILE="$CRASHDIR"/configs/servers_"$i18n".list
+if echo "$crashcore" | grep -q 'singbox'; then
+    CORE_TYPE=singbox
+else
+    CORE_TYPE=clash
+fi
 
-# Subconverter在线订阅转换
+# 零外泄本地拉取与订阅转换
 subconverter() {
     while true; do
-        comp_box "1) \033[32m$SUBCONVERTER_MENU_GEN\033[0m"\
-         "2) $SUBCONVERTER_MENU_EXCLUDE \033[47;30m$exclude\033[0m"\
-         "3) $SUBCONVERTER_MENU_INCLUDE \033[47;30m$include\033[0m"\
-         "4) $SUBCONVERTER_MENU_RULE"\
-         "5) $SUBCONVERTER_MENU_SERVER"\
-         "6) $SUBCONVERTER_MENU_UA  \033[32m$user_agent\033[0m"\
-         ""\
-         "0) $COMMON_BACK"
+        if [ -z "$(grep "provider_temp_${CORE_TYPE}" "$CRASHDIR"/configs/ShellCrash.cfg 2>/dev/null)" ]; then
+            provider_temp_des=$(sed -n "1 p" "$CRASHDIR"/configs/"${CORE_TYPE}"_providers.list 2>/dev/null | awk '{print $1}')
+        else
+            provider_temp_file=$(grep "provider_temp_${CORE_TYPE}" "$CRASHDIR"/configs/ShellCrash.cfg | awk -F '=' '{print $2}')
+            provider_temp_des=$(grep "$provider_temp_file" "$CRASHDIR"/configs/"${CORE_TYPE}"_providers.list 2>/dev/null | awk '{print $1}')
+            [ -z "$provider_temp_des" ] && provider_temp_des=$provider_temp_file
+        fi
+
+        comp_box "\033[32m$SUBCONVERTER_LOCAL_BANNER\033[0m" \
+            "" \
+            "1) \033[32m$SUBCONVERTER_MENU_GEN\033[0m" \
+            "2) $SUBCONVERTER_MENU_EXCLUDE \033[47;30m$exclude\033[0m" \
+            "3) $SUBCONVERTER_MENU_INCLUDE \033[47;30m$include\033[0m" \
+            "4) $SUBCONVERTER_MENU_RULE \033[32m$provider_temp_des\033[0m" \
+            "5) $SUBCONVERTER_MENU_UA  \033[32m$user_agent\033[0m" \
+            "" \
+            "0) $COMMON_BACK"
         read -r -p "$COMMON_INPUT> " num
         case "$num" in
         "" | 0)
             break
             ;;
         1)
-            providers_link=$(grep -v '\./providers/' "$CRASHDIR"/configs/providers.cfg 2>/dev/null | awk '{print $2}' | tr '\n' '|')
-            uri_link=$(grep -v '^#' "$CRASHDIR"/configs/providers_uri.cfg 2>/dev/null | awk '{ print ($1=="vmess" ? $2 : $2 "#" $1) }' | tr '\n' '|')
-            Url=$(echo "$providers_link|$uri_link" | sed 's/||*/|/g; s/^|//; s/|$//')
-            setconfig Url "'$Url'"
+            setconfig local_sub ON
             Https=''
+            Url=''
             setconfig Https
-            # 获取在线文件
+            setconfig Url
             jump_core_config
             ;;
         2)
@@ -47,9 +57,6 @@ subconverter() {
             gen_link_config
             ;;
         5)
-            gen_link_server
-            ;;
-        6)
             set_sub_ua
             ;;
         *)
@@ -115,58 +122,45 @@ gen_link_ele() {
     fi
 }
 
-# 选择在线规则模版
+# 选择本地/本仓库规则模板（不走第三方 subconverter）
 gen_link_config() {
-    list=$(grep -aE '^5' "$LISTFILE" | awk '{print $2$4}')
-    now=$(grep -aE '^5' "$LISTFILE" | sed -n ""$rule_link"p" | awk '{print $2}')
-    comp_box "$SUBCONVERTER_RULE_CURRENT\033[33m$now\033[0m"
+    list=$(awk '{print $1}' "$CRASHDIR/configs/${CORE_TYPE}_providers.list" 2>/dev/null)
+    comp_box "$SUBCONVERTER_RULE_CURRENT\033[33m$provider_temp_des\033[0m" \
+        "\033[33m$PROVIDERS_TEMPLATE_SELECT\033[0m"
     list_box "$list"
-    content_line ""
-    common_back
-    read -r -p "$COMMON_INPUT> " num
-    totalnum=$(grep -acE '^5' "$CRASHDIR"/configs/servers_"$i18n".list)
-    if [ -z "$num" ] || [ "$num" -gt "$totalnum" ]; then
-        errornum
-    elif [ "$num" = 0 ]; then
-        echo
-    elif [ "$num" -le "$totalnum" ]; then
-        # 将对应标记值写入配置
-        rule_link=$num
-        if setconfig rule_link "$rule_link"; then
-            msg_alert "\033[32m$SUBCONVERTER_SET_OK\033[0m"
-        else
-            common_failed
-        fi
-    fi
-}
-
-# 选择Subconverter服务器
-gen_link_server() {
-    list=$(grep -aE '^3|^4' "$LISTFILE" | awk '{print $3"	"$2}')
-    now=$(grep -aE '^3|^4' "$LISTFILE" | sed -n ""$server_link"p" | awk '{print $3}')
-
-    comp_box "\033[36m$SUBCONVERTER_SERVER_HINT\033[0m" \
-        "\033[32m$SUBCONVERTER_SERVER_THANKS\033[0m" \
+    btm_box "" \
+        "a) $PROVIDERS_TEMPLATE_LOCAL" \
         "" \
-        "$SUBCONVERTER_SERVER_CURRENT\033[33m$now\033[0m"
-    list_box "$list"
-    content_line ""
-    common_back
+        "0) $COMMON_BACK"
     read -r -p "$COMMON_INPUT> " num
-    totalnum=$(grep -acE '^3|^4' "$CRASHDIR"/configs/servers_"$i18n".list)
-    if [ -z "$num" ] || [ "$num" -gt "$totalnum" ]; then
-        errornum
-    elif [ "$num" = 0 ]; then
-        echo
-    elif [ "$num" -le "$totalnum" ]; then
-        # 将对应标记值写入配置
-        server_link=$num
-        if setconfig server_link "$server_link"; then
-            content_line "\033[32m$SUBCONVERTER_SET_OK\033[0m"
+    case "$num" in
+    "" | 0) ;;
+    a)
+        line_break
+        read -r -p "$PROVIDERS_TEMPLATE_PATH> " dir
+        if [ -s "$dir" ]; then
+            if setconfig provider_temp_"$CORE_TYPE" "$dir"; then
+                common_success
+            else
+                common_failed
+            fi
         else
-            common_failed
+            msg_alert "\033[31m$PROVIDERS_TEMPLATE_NOT_FOUND\033[0m"
         fi
-    fi
+        ;;
+    *)
+        provider_temp_file=$(sed -n "${num}p" "$CRASHDIR/configs/${CORE_TYPE}_providers.list" 2>/dev/null | awk '{print $2}')
+        if [ -z "$provider_temp_file" ]; then
+            errornum
+        else
+            if setconfig provider_temp_"$CORE_TYPE" "$provider_temp_file"; then
+                msg_alert "\033[32m$SUBCONVERTER_SET_OK\033[0m"
+            else
+                common_failed
+            fi
+        fi
+        ;;
+    esac
 }
 
 set_sub_ua() {
@@ -174,12 +168,12 @@ set_sub_ua() {
         comp_box "\033[36m$SUBCONVERTER_UA_HINT\033[0m" \
             "" \
             "$SUBCONVERTER_UA_CURRENT$user_agent"
-        btm_box "1) $SUBCONVERTER_UA_AUTO"\
-         "2) $SUBCONVERTER_UA_NONE"\
-         "3) $SUBCONVERTER_UA_CUSTOM"\
-         "4) $SUBCONVERTER_UA_CLEAR"\
-         ""\
-         "0) $COMMON_BACK"
+        btm_box "1) $SUBCONVERTER_UA_AUTO" \
+            "2) $SUBCONVERTER_UA_NONE" \
+            "3) $SUBCONVERTER_UA_CUSTOM" \
+            "4) $SUBCONVERTER_UA_CLEAR" \
+            "" \
+            "0) $COMMON_BACK"
         read -r -p "$COMMON_INPUT> " num
         case "$num" in
         0)

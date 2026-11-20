@@ -105,7 +105,7 @@ else
 fi
 setconfig COMMAND "$COMMAND" "$COMMAND_FILE"
 #设置防火墙执行模式
-grep -q 'firewall_mod' "$CRASHDIR/configs/ShellClash.cfg" 2>/dev/null || {
+grep -q 'firewall_mod' "$CFG_PATH" 2>/dev/null || {
     firewall_mod=iptables
     nft add table inet shellcrash 2>/dev/null && firewall_mod=nftables
     setconfig firewall_mod $firewall_mod
@@ -176,7 +176,7 @@ fi
     setconfig dns_mod 'mix'
     setconfig firewall_area '1'
     setconfig firewall_mod 'nftables'
-    setconfig release_type 'master'
+    setconfig release_type 'dev'
     setconfig start_old 'OFF'
     echo "$CRASHDIR/menu.sh" >> /etc/profile
     cat > /usr/bin/crash <<'EOF'

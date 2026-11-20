@@ -60,13 +60,12 @@ makehtml() { #生成面板跳转文件
 <body>
     <div style="text-align: center; margin-top: 50px;">
         <h1>您还未安装本地面板</h1>
-        <h3>请在脚本更新功能中(9-4)安装<br>或者使用在线面板：</h3>
-        <h4>请复制当前地址/ui(不包括)前面的内容，填入url位置即可连接</h3>
-        <a href="http://board.zash.run.place" style="font-size: 24px;">Zashboard面板(推荐)<br></a>
-        <a style="font-size: 21px;"><br>如已安装，请使用Ctrl+F5强制刷新此页面！<br></a>
+        <h3>请在脚本更新功能中(9-4)安装本地面板（如 Zashboard / Metacubexd）</h3>
+        <p style="font-size: 18px;">为保证零外部依赖与安全隔离，已移除第三方在线面板跳转。</p>
+        <p style="font-size: 18px;">如已安装本地面板，请使用 Ctrl+F5 强制刷新此页面。</p>
     </div>
 </body>
-</html
+</html>
 EOF
 }
 catpac() { #生成pac文件

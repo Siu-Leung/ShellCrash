@@ -27,67 +27,41 @@ gen_ua(){  #自动生成ua
     }
     [ "$user_agent" = "none" ] && unset user_agent
 }
-get_core_config() { #下载内核配置文件
-    [ -z "$rule_link" ] && rule_link=1
-    [ -z "$server_link" ] || [ $server_link -gt $(grep -aE '^4' "$CRASHDIR"/configs/servers_${i18n}.list | wc -l) ] && server_link=1
-    Server=$(grep -aE '^3|^4' "$CRASHDIR"/configs/servers_${i18n}.list | sed -n ""$server_link"p" | awk '{print $3}')
-    Server_ua=$(grep -aE '^4' "$CRASHDIR"/configs/servers_${i18n}.list | sed -n ""$server_link"p" | awk '{print $4}')
-    Config=$(grep -aE '^5' "$CRASHDIR"/configs/servers_${i18n}.list | sed -n ""$rule_link"p" | awk '{print $3}')
+get_core_config() { #下载或本地转换内核配置文件（零第三方转换站外发）
     gen_ua
-    #如果传来的是Url链接则合成Https链接，否则直接使用Https链接
+    # 安全加固：彻底移除第三方 subconverter 在线转换路径。
+    # 1) 若未设置直链 Https（如启用了本地拉取转换模式），则通过 local_sub_convert.sh 在本机直拉订阅并合成配置。
     if [ -z "$Https" ]; then
-        #Urlencord转码处理保留字符
-        if ckcmd hexdump;then
-            Url=$(echo $Url | sed 's/%26/\&/g')   #处理分隔符
-            urlencodeUrl="exclude=$(urlencode "$exclude")&include=$(urlencode "$include")&url=$(urlencode "$Url")&config=$(urlencode "$Config")"
+        if [ -s "$CRASHDIR"/configs/providers.cfg ] || [ -s "$CRASHDIR"/configs/providers_uri.cfg ]; then
+            echo "-----------------------------------------------"
+            logger "正在本地直拉订阅并转换【$target】配置文件（零外泄）…………" 36
+            . "$CRASHDIR"/libs/local_sub_convert.sh
+            if local_sub_convert; then
+                echo -e "\033[32m已成功完成本地订阅拉取与配置转换！\033[0m"
+                return 0
+            else
+                logger "本地订阅拉取或转换失败，请检查订阅链接与网络连接！" 31
+                exit 1
+            fi
         else
-            urlencodeUrl="exclude=$exclude&include=$include&url=$Url&config=$Config"
+            logger "未配置直链订阅或本地提供者，请先在配置文件管理中添加订阅！" 31
+            exit 1
         fi
-        Https="${Server}/sub?target=${target}&${Server_ua}=${user_agent}&insert=true&new_name=true&scv=true&udp=true&${urlencodeUrl}"
-        url_type=true
-    else
-        Https=$(echo $Https | sed 's/\\&/\&/g')   #还原转义
     fi
-    #输出
+
+    # 2) 直链模式（Https 非空）：直接从用户原始 URL 拉取配置，绝不经过第三方中转
+    Https=$(echo "$Https" | sed 's/\\&/\&/g')   #还原转义
     echo "-----------------------------------------------"
-    logger "正在连接服务器获取【$target】配置文件…………" 36
-    echo -e "链接地址为：\033[4;32m$Https\033[0m"
-    echo 可以手动复制该链接到浏览器打开并查看数据是否正常！
-    #获取在线config文件
+    logger "正在直连源地址获取【$target】配置文件…………" 36
     core_config_new="$TMPDIR"/"$target"_config."$format"
     rm -rf "$core_config_new"
     webget "$core_config_new" "$Https" echoon rediron skipceron "$user_agent"
     if [ "$?" != "0" ]; then
-        if [ -z "$url_type" ]; then
-            echo "-----------------------------------------------"
-            logger "配置文件获取失败！" 31
-            echo -e "\033[31m请尝试使用【在线生成配置文件】功能！\033[0m"
-            echo "-----------------------------------------------"
-            exit 1
-        else
-            if [ -n "$retry" ] && [ "$retry" -ge 3 ]; then
-                logger "无法获取配置文件，请检查链接格式以及网络连接状态！" 31
-                echo -e "\033[32m也可用浏览器下载以上链接后，使用WinSCP手动上传到/tmp目录后执行crash命令本地导入！\033[0m"
-                exit 1
-            else
-                retry=$((retry + 1))
-                logger "配置文件获取失败！" 31 off on
-                if [ "$retry" = 1 ]; then
-                    echo -e "\033[32m尝试更新服务器列表并使用其他服务器获取配置！\033[0m"
-                    update_servers
-                else
-                    echo -e "\033[32m尝试使用其他服务器获取配置！\033[0m"
-                fi
-                echo -e "正在重试\033[33m第$retry次/共3次！\033[0m"
-                if [ "$server_link" -ge 4 ]; then
-                    server_link=0
-                fi
-                server_link=$((server_link + 1))
-                setconfig server_link $server_link
-                Https=""
-                get_core_config
-            fi
-        fi
+        echo "-----------------------------------------------"
+        logger "配置文件获取失败！" 31
+        echo -e "\033[31m请检查订阅链接或尝试使用【本地拉取并转换配置文件】功能！\033[0m"
+        echo "-----------------------------------------------"
+        exit 1
     else
         Https=""
         if echo "$crashcore" | grep -q 'singbox'; then

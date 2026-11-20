@@ -4,7 +4,7 @@
 echo "***********************************************"
 echo "**               Welcome to                  **"
 echo "**               ShellCrash                  **"
-echo "**                             by  Juewuy    **"
+echo "**                 Hardened Edition          **"
 echo "***********************************************"
 
 language=en
@@ -28,23 +28,33 @@ ckcmd() {
     fi
 }
 webget() {
-    # Parameter [$1] Download Path, [$2] Online URL
-    # Parameter [$3] Display Output, [$4] Disable Redirects
+    # 参数【$1】代表下载目录，【$2】代表在线地址，【$3】输出显示，【$4】不启用重定向
+    # 安全加固：默认开启 TLS 证书校验；仅当显式设置 SKIP_CERT=1 时才跳过证书校验
+    result=""
     if curl --version >/dev/null 2>&1; then
         [ "$3" = "echooff" ] && progress='-s' || progress='-#'
         [ -z "$4" ] && redirect='-L' || redirect=''
-        result=$(curl -w %{http_code} --connect-timeout 5 "$progress" "$redirect" -ko "$1" "$2")
-        [ -n "$(echo $result | grep -e ^2)" ] && result="200"
+        [ "$SKIP_CERT" = "1" ] && cert_arg='-k' || cert_arg=''
+        result=$(curl -w '%{http_code}' --connect-timeout 5 $progress $redirect $cert_arg -o "$1" "$2")
+        rc=$?
+        if [ "$rc" = 0 ] && echo "$result" | grep -q '^2'; then
+            result="200"
+        else
+            result=""
+        fi
     else
+        redirect=''
+        certificate=''
+        timeout=''
         if wget --version >/dev/null 2>&1; then
             [ "$3" = "echooff" ] && progress='-q' || progress='-q --show-progress'
-            [ "$4" = "rediroff" ] && redirect='--max-redirect=0' || redirect=''
-            certificate='--no-check-certificate'
-            timeout='--timeout=3'
+            [ "$4" = "rediroff" ] && redirect='--max-redirect=0'
+            [ "$SKIP_CERT" = "1" ] && certificate='--no-check-certificate'
+            timeout='--timeout=5'
         fi
         [ "$3" = "echoon" ] && progress=''
         [ "$3" = "echooff" ] && progress='-q'
-        wget "$progress" "$redirect" "$certificate" "$timeout" -O "$1" "$2"
+        wget $progress $redirect $certificate $timeout -O "$1" "$2"
         [ $? -eq 0 ] && result="200"
     fi
 }
@@ -289,7 +299,7 @@ setversion() {
     echo "-----------------------------------------------"
     read -p "Enter number > " num
     release_type=dev
-    url=$(echo "$url" | sed "s/@[a-z]*/@dev/")
+    url=$(echo "$url" | sed "s/@[a-z]*/@dev/; s#/master#/dev#")
 }
 
 # Pre-Install Checks

@@ -1,37 +1,58 @@
 #!/bin/sh
 
 [ -z "$CRASHDIR" ] && CRASHDIR=$( cd $(dirname $0);cd ..;pwd)
+. "$CRASHDIR"/libs/get_config.sh
 . "$CRASHDIR"/libs/web_json.sh
 . "$CRASHDIR"/libs/set_config.sh
 . "$CRASHDIR"/libs/web_get_lite.sh
+. "$CRASHDIR"/libs/logger.sh
 . "$CRASHDIR"/libs/i18n.sh
 . "$CRASHDIR"/menus/running_status.sh
-. "$CRASHDIR"/configs/gateway.cfg
-. "$CRASHDIR"/configs/ShellCrash.cfg
+[ -f "$CRASHDIR"/configs/gateway.cfg ] && . "$CRASHDIR"/configs/gateway.cfg
 
 load_lang bot_tg
 
-TMPDIR='/tmp/ShellCrash'
+[ -z "$TMPDIR" ] && TMPDIR='/tmp/ShellCrash'
+mkdir -p "$TMPDIR"
+# 安全加固：未绑定合法自建 Bot Token 或 ChatID 时拒绝启动轮询，杜绝空 ChatID 绕过鉴权
+case "$TG_CHATID" in
+    '' | *[!0-9-]*) echo "Invalid or empty TG_CHATID, aborting bot_tg." >&2; exit 1 ;;
+esac
+[ -z "$TG_TOKEN" ] && { echo "Empty TG_TOKEN, aborting bot_tg." >&2; exit 1; }
+
 API="https://api.telegram.org/bot$TG_TOKEN"
 STATE_FILE="$TMPDIR/tgbot_state"
 LOGFILE="$TMPDIR/tgbot.log"
 OFFSET=0
+FILE_TYPE=""
+echo "$crashcore" | grep -q 'singbox' && config_type=json || config_type=yaml
 
 ### --- 基础函数 --- ###
-web_download(){
+web_download() (
     setproxy
     if curl --version >/dev/null 2>&1; then
-        curl -kfsSl "$1" -o "$2"
+        _cert=''
+        [ "$skip_cert" = "ON" ] && _cert='-k'
+        curl $_cert -fsSl --connect-timeout 5 --max-time 120 "$1" -o "$2"
     else
-        wget_proxy on -q --timeout=3 -O "$2" "$1"
+        _cert=''
+        [ "$skip_cert" = "ON" ] && wget --help 2>&1 | grep -q 'no-check-certificate' && _cert='--no-check-certificate'
+        wget_proxy on -q $_cert --timeout=30 -O "$2" "$1"
     fi
-}
-web_upload(){
-    curl -ksSfl -X POST --connect-timeout 20 "$API/sendDocument" -F "chat_id=$TG_CHATID" -F "document=@$1" >/dev/null
-}
+)
+web_upload() (
+    setproxy
+    _cert=''
+    [ "$skip_cert" = "ON" ] && _cert='-k'
+    curl $_cert -sSfl -X POST --connect-timeout 20 --max-time 60 "$API/sendDocument" -F "chat_id=$TG_CHATID" -F "document=@$1" >/dev/null
+)
 send_msg(){
-    TEXT="$1"
-    web_json_post "$API/sendMessage" "{\"chat_id\":\"$TG_CHATID\",\"text\":\"$TEXT\",\"parse_mode\":\"Markdown\"}"
+    _esc_text=$(json_escape "$1")
+    web_json_post "$API/sendMessage" "{\"chat_id\":\"$TG_CHATID\",\"text\":\"$_esc_text\",\"parse_mode\":\"Markdown\"}"
+}
+send_plain_msg(){
+    _esc_text=$(json_escape "$1")
+    web_json_post "$API/sendMessage" "{\"chat_id\":\"$TG_CHATID\",\"text\":\"$_esc_text\"}"
 }
 send_help(){
     # 去原作者化：帮助消息只保留机器人功能说明，移除上游 TG 群/项目/博客引流
@@ -50,7 +71,7 @@ send_menu(){
     else
         run="$BOT_TG_RUN_OFF"
     fi
-    corename=$(echo $crashcore | sed 's/singboxr/SingBoxR/' | sed 's/singbox/SingBox/' | sed 's/clash/Clash/' | sed 's/meta/Mihomo/')
+    corename=$(echo "$crashcore" | sed 's/singboxr/SingBoxR/' | sed 's/singbox/SingBox/' | sed 's/clash/Clash/' | sed 's/meta/Mihomo/')
     TEXT=$(cat <<EOF
 *$BOT_TG_WELCOME*_${versionsh_l}_
 $corename$BOT_TG_SERVICE$run
@@ -59,6 +80,7 @@ $BOT_TG_RUNNING_TIME$day$time
 $BOT_TG_SELECT_ACTION
 EOF
 )
+    _esc_text=$(json_escape "$TEXT")
     MENU=$(cat <<EOF
 {
   "inline_keyboard":[
@@ -75,7 +97,7 @@ EOF
 }
 EOF
 )
-web_json_post "$API/sendMessage" "{\"chat_id\":\"$TG_CHATID\",\"text\":\"$TEXT\",\"parse_mode\":\"Markdown\",\"reply_markup\":$MENU}"
+    web_json_post "$API/sendMessage" "{\"chat_id\":\"$TG_CHATID\",\"text\":\"$_esc_text\",\"parse_mode\":\"Markdown\",\"reply_markup\":$MENU}"
 }
 ### --- 文件传输 --- ###
 send_transport_menu(){ 
@@ -96,7 +118,7 @@ send_transport_menu(){
 EOF
 )
     else
-        CURL_KB='[{"text":"$BOT_TG_NO_CURL","callback_data":"noop"}],'
+        CURL_KB="[{\"text\":\"$BOT_TG_NO_CURL\",\"callback_data\":\"noop\"}],"
     fi
     MENU=$(cat <<EOF
 {
@@ -111,11 +133,21 @@ EOF
 }
 EOF
 )
-
-web_json_post "$API/sendMessage" "{\"chat_id\":\"$TG_CHATID\",\"text\":\"$TEXT\",\"parse_mode\":\"Markdown\",\"reply_markup\":$MENU}"
+    _esc_text=$(json_escape "$TEXT")
+    web_json_post "$API/sendMessage" "{\"chat_id\":\"$TG_CHATID\",\"text\":\"$_esc_text\",\"parse_mode\":\"Markdown\",\"reply_markup\":$MENU}"
 
 }
+# 校验压缩包内无绝对路径、../ 路径遍历及符号链接/硬链接/设备节点（防 Tar Slip）
+_safe_tar_check() {
+    _entries=$(tar -tzf "$1" 2>/dev/null) || return 1
+    [ -n "$_entries" ] || return 1
+    printf '%s\n' "$_entries" | grep -Eq '(^/|^\.\./|/\.\./|/\.\.$|^\.\.$)' && return 1
+    _listing=$(tar -tvzf "$1" 2>/dev/null) || return 1
+    printf '%s\n' "$_listing" | grep -Eq '^[lhcb]' && return 1
+    return 0
+}
 process_file(){
+    echo "$crashcore" | grep -q 'singbox' && config_type=json || config_type=yaml
     case "$FILE_TYPE" in
         1)
             . "$CRASHDIR"/libs/core_tools.sh
@@ -125,25 +157,43 @@ process_file(){
             "$CRASHDIR"/start.sh start
         ;;
         2)
-            tar -zxf "$TMPDIR/$FILE_NAME" -C "$CRASHDIR"/configs && res="$BOT_TG_CFG_RESTORED" || res="$BOT_TG_RESTORE_FAIL"
+            if _safe_tar_check "$TMPDIR/$FILE_NAME" && tar -zxf "$TMPDIR/$FILE_NAME" -C "$CRASHDIR"/configs; then
+                res="$BOT_TG_CFG_RESTORED"
+            else
+                res="$BOT_TG_RESTORE_FAIL"
+            fi
             send_msg "$res"
         ;;
         3)
-            mv -f "$TMPDIR/$FILE_NAME" "$CRASHDIR/${config_type}s/" && res="$BOT_TG_CFG_UPLOADED" || res="$BOT_TG_UPLOAD_FAIL2"
+            mkdir -p "$CRASHDIR/${config_type}s"
+            mv -f "$TMPDIR/$FILE_NAME" "$CRASHDIR/${config_type}s/$FILE_NAME" && res="$BOT_TG_CFG_UPLOADED" || res="$BOT_TG_UPLOAD_FAIL2"
             send_msg "$res"
         ;;
+        *)
+            send_msg "$BOT_TG_FILE_FORMAT_FAIL"
+        ;;
     esac
+    FILE_TYPE=""
     rm -f "$TMPDIR/$FILE_NAME"
     send_menu
 }
 download_file(){
-    FILE_NAME=$(echo "$UPDATES" | sed 's/"callback_query".*//g' | grep -o '"file_name":"[^"]*"' | head -n1 | sed 's/.*:"//;s/"$//' | grep -E '\.(gz|upx|json|yaml)$')
-    if [ -n "$FILE_NAME" ];then
-        FILE_PATH=$(web_get_lite "$API/getFile?file_id=$FILE_ID" | grep -o '"file_path":"[^"]*"' | sed 's/.*:"//;s/"$//')
-        API_FILE="https://api.telegram.org/file/bot$TG_TOKEN"
-        web_download "$API_FILE/$FILE_PATH" "$TMPDIR/$FILE_NAME"
-        if [ "$?" = 0 ];then
-            process_file
+    _raw_name=$(echo "$UPDATES" | sed 's/"callback_query".*//g' | grep -o '"file_name":"[^"]*"' | head -n1 | sed 's/.*:"//;s/"$//')
+    # 安全加固：仅允许纯文件名（禁止 /、..、空格与特殊字符），防止路径遍历写入任意目录
+    FILE_NAME=$(printf '%s' "$_raw_name" | sed 's|.*/||' | grep -E '^[A-Za-z0-9._-]+\.(tar\.gz|gz|upx|json|yaml)$')
+    case "$FILE_NAME" in *..* ) FILE_NAME="" ;; esac
+    if [ -n "$FILE_NAME" ] && [ -n "$FILE_TYPE" ];then
+        FILE_PATH=$(web_get_lite "$API/getFile?file_id=$FILE_ID" "" 15 | grep -o '"file_path":"[^"]*"' | head -n1 | sed 's/.*:"//;s/"$//')
+        case "$FILE_PATH" in '' | *..* | /*) FILE_PATH="" ;; esac
+        if [ -n "$FILE_PATH" ]; then
+            API_FILE="https://api.telegram.org/file/bot$TG_TOKEN"
+            web_download "$API_FILE/$FILE_PATH" "$TMPDIR/$FILE_NAME"
+            if [ "$?" = 0 ];then
+                process_file
+            else
+                rm -f "$TMPDIR/$FILE_NAME"
+                send_msg "$BOT_TG_NET_UPLOAD_FAIL"
+            fi
         else
             send_msg "$BOT_TG_NET_UPLOAD_FAIL"
         fi
@@ -154,13 +204,17 @@ download_file(){
 ### --- 具体操作函数 --- ###
 do_start_fw(){
     [ -z "$redir_mod_bf" ] && redir_mod_bf='Redir'
+    [ -z "$firewall_area_bf" ] && firewall_area_bf='1'
     redir_mod=$redir_mod_bf
-    setconfig redir_mod $redir_mod
+    firewall_area=$firewall_area_bf
+    setconfig redir_mod "$redir_mod"
+    setconfig firewall_area "$firewall_area"
     "$CRASHDIR"/start.sh start_firewall
     echo "$BOT_TG_FW_ENABLED*$redir_mod_bf*$BOT_TG_FW_ENABLED_SUFFIX" > "$LOGFILE"
 }
 do_stop_fw(){
     redir_mod_bf=$redir_mod
+    [ "$firewall_area" != "4" ] && firewall_area_bf=$firewall_area
     firewall_area=4
     setconfig firewall_area 4
     "$CRASHDIR"/start.sh stop_firewall
@@ -211,22 +265,35 @@ transport(){ #文件传输
     esac
 }
 
+# 安全加固：提取单条更新(limit=1)的首个 chat.id（位于用户可控 text/file_name 之前，防止消息正文伪造 "id":xxx 绕过鉴权）
+extract_chat_id() {
+    if command -v jq >/dev/null 2>&1; then
+        printf '%s' "$1" | jq -r '.result[0] | (.message.chat.id // .callback_query.message.chat.id // empty)' 2>/dev/null
+    else
+        printf '%s' "$1" | grep -oE '"chat":[[:space:]]*\{[[:space:]]*"id":[[:space:]]*-?[0-9]+' | head -n 1 | grep -oE -- '-?[0-9]+$'
+    fi
+}
+
 ### --- 轮询主进程 --- ###
 polling(){
     while true; do
-        UPDATES=$(web_get_lite "$API/getUpdates?timeout=25&offset=$OFFSET")
+        # limit=1 确保每次只处理一条更新，彻底杜绝多条更新中 CHATID 与 CALLBACK/FILE_ID 错位导致的越权执行
+        UPDATES=$(web_get_lite "$API/getUpdates?timeout=25&limit=1&offset=$OFFSET" "" 35)
 
         echo "$UPDATES" | grep -q '"update_id"' || {
             sleep 10 #防止网络不佳时疯狂请求
             continue
         }
         
-        OFFSET=$(echo "$UPDATES" | grep -o '"update_id":[0-9]*' | tail -n1 | cut -d: -f2)
+        OFFSET=$(echo "$UPDATES" | grep -o '"update_id":[0-9]*' | head -n1 | cut -d: -f2)
+        case "$OFFSET" in
+            '' | *[!0-9]*) sleep 5; continue ;;
+        esac
         OFFSET=$((OFFSET + 1))
         
-        ### --- 校验ChatID --- ###
-        CHATID=$(echo "$UPDATES" | grep -o '"id":[0-9]*' | tail -n1 | cut -d: -f2)
-        [ "$CHATID" != "$TG_CHATID" ] && continue
+        ### --- 严格校验 ChatID --- ###
+        CHATID=$(extract_chat_id "$UPDATES")
+        [ -n "$TG_CHATID" ] && [ "$CHATID" = "$TG_CHATID" ] || continue
         
         ### --- 处理按钮事件 --- ###
         CALLBACK=$(echo "$UPDATES" | grep -o '"data":"[^"]*"' | head -n1 | sed 's/.*:"//;s/"$//')
@@ -265,7 +332,9 @@ polling(){
                 continue
             ;;
             "readlog")
-                send_msg  "$BOT_TG_LOG_CONTENT\n\`\`\`$(grep -v "$BOT_TG_TASK_WORD" $TMPDIR/ShellCrash.log |tail -n 20)\`\`\`"
+                _log_body=$(grep -v "$BOT_TG_TASK_WORD" "$TMPDIR/ShellCrash.log" 2>/dev/null | tail -n 20)
+                send_plain_msg "$BOT_TG_LOG_CONTENT
+$_log_body"
                 sleep 3
                 send_menu 
                 continue
@@ -292,7 +361,8 @@ polling(){
         if [ "$(cat "$STATE_FILE" 2>/dev/null)" = "await_sub" ]; then
             echo "" > "$STATE_FILE"
             do_set_sub "$TEXT"
-            send_msg  "$BOT_TG_SUB_UPDATED\n$(cat "$LOGFILE")"
+            send_plain_msg "$BOT_TG_SUB_UPDATED
+$(cat "$LOGFILE" 2>/dev/null)"
             send_menu 
             continue
         fi

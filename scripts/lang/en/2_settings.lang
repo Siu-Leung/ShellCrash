@@ -40,10 +40,13 @@ SET_RESTORE="Restore Script Settings"
 SET_RESET="Reset Script Settings"
 
 SET_BACKUP_OK="Script settings have been backed up!"
+SET_BACKUP_FAIL="Failed to back up script settings!"
 SET_RESTORE_OK="Script settings have been restored! (Overwritten config has been backed up)"
 SET_RESET_OK="Script settings have been reset! (Old config has been backed up)"
+SET_RESET_FAIL="Failed to reset script settings!"
 SET_BACKUP_MISS="Backup file not found. Please back up first!"
 SET_NEED_RESTART="Please restart the script for changes to take effect!"
+SET_SWITCH_RERUN="Switched successfully! Please re-run the script!"
 
 SET_TUI_1="New Design UI by Sofia-Riese"
 SET_TUI_2="Lite UI (use if line wrapping is broken)"
@@ -81,7 +84,8 @@ SET_FW_SWITCH="Switch Firewall Backend"
 
 SET_FW_AREA_DESC="LAN only|Local only|LAN&Local|Pure mode|Bypass:"
 
-FW_AREA_NOTE="If you are using a third-party DNS like SmartDNS, \ndo not enable local hijacking or run the service as a ShellCrash user"
+FW_AREA_NOTE_1="If you are using a third-party DNS like SmartDNS,"
+FW_AREA_NOTE_2="do not enable local hijacking or run the service as the shellcrash user!"
 FW_AREA_LAN="Hijack LAN traffic only"
 FW_AREA_LOCAL="Hijack local device traffic only"
 FW_AREA_BOTH="Hijack both LAN and local device traffic"
@@ -97,7 +101,8 @@ VM_DISABLE="Disable hijacking"
 VM_INPUT_INFO="Separate multiple segments with spaces. Check your configuration using ip route. Example:"
 VM_INPUT_NET="Please enter cust subnets"
 VM_NO_NET_DETECTED="No container or VM subnet detected. Please start the container first, or configure the subnet manually!"
-VM_INPUT_DESC="Multiple subnets should be separated by spaces. You can check them using the 'ip route' command, for example:"
+VM_INPUT_DESC_1="Separate multiple subnets with spaces. You can check them via [ip route]."
+VM_INPUT_DESC_2="Example:"
 
 #inputport
 INPUT_PORT="Input port"

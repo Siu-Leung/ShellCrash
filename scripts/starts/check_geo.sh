@@ -3,9 +3,10 @@
 
 check_geo() { #查找及下载Geo数据文件
     [ ! -d "$BINDIR"/ruleset ] && mkdir -p "$BINDIR"/ruleset
-    find --help 2>&1 | grep -q size && find_para=' -size +20' #find命令兼容
-    [ -z "$(find "$BINDIR"/"$1" "$find_para" 2>/dev/null)" ] && {
-        if [ -n "$(find "$CRASHDIR"/"$1" "$find_para" 2>/dev/null)" ]; then
+    find_para=''
+    find --help 2>&1 | grep -q size && find_para='-size +20' #find命令兼容
+    [ -z "$(find "$BINDIR"/"$1" $find_para 2>/dev/null)" ] && {
+        if [ -n "$(find "$CRASHDIR"/"$1" $find_para 2>/dev/null)" ]; then
             mv "$CRASHDIR"/"$1" "$BINDIR"/"$1" #小闪存模式移动文件
         else
             logger "未找到${1}文件，正在下载！" 33

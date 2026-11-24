@@ -23,21 +23,36 @@ webget() (
     #参数【$1】代表下载目录，【$2】代表在线地址
     #参数【$3】代表输出显示，【$4】不启用重定向
     #参数【$5】代表验证证书，【$6】使用自定义UA
-    [ -n "$6" ] && agent="--user-agent $6"
+    _out_path="$1"
+    _orig_url="$2"
+    _ua="$6"
     #记录目标原本是否存在，下载失败时只清理本次新建的文件
     target_existed=''
-    if [ -e "$1" ] || [ -L "$1" ]; then target_existed=1; fi
+    if [ -e "$_out_path" ] || [ -L "$_out_path" ]; then target_existed=1; fi
     if wget --help 2>&1 | grep -q 'show-progress' >/dev/null 2>&1; then
         [ "$3" = "echooff" ] && progress='-q' || progress='-q --show-progress'
         [ "$4" = "rediroff" ] && redirect='--max-redirect=0' || redirect=''
-        if [ "$5" = "skipceroff" ] || [ "$skip_cert" = OFF ]; then
+        # 安全加固：fail-closed，仅当未强制 skipceroff 且显式 skip_cert=ON 时才跳过校验
+        if [ "$5" = "skipceroff" ] || [ "${skip_cert:-OFF}" = OFF ] || [ "$skip_cert" != "ON" ]; then
             certificate=''
         else
             certificate='--no-check-certificate'
         fi
-        wget_proxy on $agent $progress $redirect $certificate --timeout=3 -O "$1" "$url" && return 0 #成功则退出否则重试
-        wget_proxy off $agent $progress $redirect $certificate --timeout=5 -O "$1" "$2" && return 0
+        if [ -n "$_ua" ]; then
+            wget_proxy on --user-agent "$_ua" $progress $redirect $certificate --timeout=3 -O "$_out_path" "$url" && return 0 #成功则退出否则重试
+            wget_proxy off --user-agent "$_ua" $progress $redirect $certificate --timeout=5 -O "$_out_path" "$_orig_url" && return 0
+        else
+            wget_proxy on $progress $redirect $certificate --timeout=3 -O "$_out_path" "$url" && return 0 #成功则退出否则重试
+            wget_proxy off $progress $redirect $certificate --timeout=5 -O "$_out_path" "$_orig_url" && return 0
+        fi
     elif curl --version >/dev/null 2>&1; then
+        [ "$4" = "rediroff" ] && redirect='' || redirect='-L'
+        # 安全加固：fail-closed，仅当未强制 skipceroff 且显式 skip_cert=ON 时才跳过校验
+        if [ "$5" = "skipceroff" ] || [ "${skip_cert:-OFF}" = OFF ] || [ "$skip_cert" != "ON" ]; then
+            certificate=''
+        else
+            certificate='-k'
+        fi
         if [ "$3" = "echooff" ]; then
             progress='-s'
         elif echo "$url" | grep -q 'jsdelivr.net'; then
@@ -46,40 +61,42 @@ webget() (
         else
             progress='-#'
         fi
-        [ "$4" = "rediroff" ] && redirect='' || redirect='-L'
-        if [ "$5" = "skipceroff" ] || [ "$skip_cert" = OFF ]; then
-            certificate=''
-        else
-            certificate='-k'
+        # curl 8.x 代理鉴权头兼容（避免未加引号拆词导致 base64 被当成第二个 URL）
+        auth_hdr=""
+        if [ -n "$authentication" ] && curl --version | grep -q '^curl 8.' && ckcmd base64; then
+            auth_b64=$(printf '%s' "$authentication" | base64 | tr -d '\r\n')
+            [ -n "$auth_b64" ] && auth_hdr="Proxy-Authorization: Basic $auth_b64"
         fi
-        # curl 特殊版本兼容
-        auth_arg=""
-        if curl --version | grep -q '^curl 8.' && ckcmd base64; then
-            auth_b64=$(printf '%s' "$authentication" | base64)
-            [ -n "$auth_b64" ] && auth_arg="--proxy-header Proxy-Authorization:Basic $auth_b64"
-        fi
-        if [ -n "$fsize_raw" ] && [ "$fsize_raw" -gt 204800 ]; then
-            result=$(execute_curl "$1" "$url" "$fsize_raw" "$agent $auth_arg $redirect $certificate")
+        if [ -n "$fsize_raw" ] && [ "$fsize_raw" -gt 204800 ] 2>/dev/null; then
+            result=$(execute_curl "$_out_path" "$url" "$fsize_raw" "$_ua" "$auth_hdr" "$redirect" "$certificate")
         else
-            result=$(curl $agent $auth_arg -w '%{http_code}' --connect-timeout 3 $progress $redirect $certificate -o "$1" "$url")
+            result=$(
+                set -- -w '%{http_code}' --connect-timeout 3 $progress $redirect $certificate
+                [ -n "$_ua" ] && set -- "$@" --user-agent "$_ua"
+                [ -n "$auth_hdr" ] && set -- "$@" --proxy-header "$auth_hdr"
+                curl "$@" -o "$_out_path" "$url"
+            )
         fi
         rc=$?
         #传输中断时状态码仍可能是200，须同时检查curl退出码
         [ "$rc" = 0 ] && [ "$result" = "200" ] && return 0 #成功则退出否则重试
-        export https_proxy=""
-        export http_proxy=""
+        export https_proxy="" http_proxy="" HTTPS_PROXY="" HTTP_PROXY="" all_proxy="" ALL_PROXY=""
 
-        if [ -n "$fsize_raw" ] && [ "$fsize_raw" -gt 204800 ]; then
-            result=$(execute_curl "$1" "$2" "$fsize_raw" "$agent $redirect $certificate")
+        if [ -n "$fsize_raw" ] && [ "$fsize_raw" -gt 204800 ] 2>/dev/null; then
+            result=$(execute_curl "$_out_path" "$_orig_url" "$fsize_raw" "$_ua" "" "$redirect" "$certificate")
         else
-            result=$(curl $agent -w '%{http_code}' --connect-timeout 5 $progress $redirect $certificate -o "$1" "$2")
+            result=$(
+                set -- -w '%{http_code}' --connect-timeout 5 $progress $redirect $certificate
+                [ -n "$_ua" ] && set -- "$@" --user-agent "$_ua"
+                curl "$@" -o "$_out_path" "$_orig_url"
+            )
         fi
         rc=$?
         [ "$rc" = 0 ] && [ "$result" = "200" ] && return 0
     elif ckcmd wget; then
         [ "$3" = "echooff" ] && progress='-q'
-        wget_proxy on $progress -O "$1" "$url" && return 0 #成功则退出否则重试
-        wget_proxy off $progress -O "$1" "$2" && return 0
+        wget_proxy on $progress -O "$_out_path" "$url" && return 0 #成功则退出否则重试
+        wget_proxy off $progress -O "$_out_path" "$_orig_url" && return 0
     else
         echo "No Curl or Wget！！！"
         return 1

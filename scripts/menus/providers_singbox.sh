@@ -8,25 +8,31 @@ load_lang providers
 
 . "$CRASHDIR"/libs/web_get_bin.sh
 
+_ps_esc() {
+    printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g' | tr -d '\r\n'
+}
+
 # 生成singbox的providers配置文件
 gen_providers() {
-    if [ -z "$(grep "provider_temp_${CORE_TYPE}" "$CRASHDIR"/configs/ShellCrash.cfg)" ]; then
-        provider_temp_file="$(sed -n "1 p" "$CRASHDIR"/configs/"${CORE_TYPE}"_providers.list | awk '{print $2}')"
-    else
-        provider_temp_file=$(grep "provider_temp_${CORE_TYPE}" "$CRASHDIR"/configs/ShellCrash.cfg | awk -F '=' '{print $2}')
+    . "$CFG_PATH" >/dev/null 2>&1
+    provider_temp_file="$provider_temp_singbox"
+    if [ -z "$provider_temp_file" ]; then
+        provider_temp_file="$(sed -n "1p" "$CRASHDIR"/configs/"${CORE_TYPE}"_providers.list | awk '{print $2}')"
     fi
     if [ -s "$provider_temp_file" ]; then
         ln -sf "$provider_temp_file" "$TMPDIR"/provider_temp_file
     else
         msg_alert "\033[33m$PROVIDERS_FETCHING_TEMPLATE\033[0m"
         get_bin "$TMPDIR"/provider_temp_file "rules/${CORE_TYPE}_providers/$provider_temp_file"
-        [ -z "$(grep -o 'route' "$TMPDIR"/provider_temp_file)" ] && {
+        [ -z "$(grep -o 'route' "$TMPDIR"/provider_temp_file 2>/dev/null)" ] && {
+            rm -f "$TMPDIR"/provider_temp_file
             msg_alert "\033[31m$PROVIDERS_DOWNLOAD_FAILED\033[0m"
             . "$CRASHDIR"/menus/9_upgrade.sh && setserver
-            setproviders
+            return 1
         }
     fi
     # 生成outbound_providers模块
+    rm -rf "$TMPDIR"/providers
     mkdir -p "$TMPDIR"/providers
     # 预创建文件并写入对应文件头
     cat >"$TMPDIR"/providers/providers.json <<EOF
@@ -38,22 +44,25 @@ EOF
   "outbounds": [
 EOF
     # 基于单订阅生成providers模块
+    providers_tags=''
     if [ -n "$1" ]; then
         gen_providers_txt "$@"
-        providers_tags=\"$1\"
+        providers_tags=\"$(_ps_esc "$1")\"
     else
         # 基于全部订阅/本地文件生成
         [ -s "$CRASHDIR"/configs/providers.cfg ] && {
-            providers_tags=''
-            while read -r line; do
+            while IFS= read -r line || [ -n "$line" ]; do
+                case "$line" in "" | \#*) continue ;; esac
+                set -f
                 gen_providers_txt $line
-                providers_tags=$(echo "$providers_tags, \"$tag\"" | sed 's/^, //')
+                set +f
+                providers_tags=$(echo "$providers_tags, \"$(_ps_esc "$tag")\"" | sed 's/^, //')
             done <"$CRASHDIR"/configs/providers.cfg
         }
         # 基于全部节点分享链接生成
         [ -s "$CRASHDIR"/configs/providers_uri.cfg ] && {
             mkdir -p "$CRASHDIR"/providers
-            awk '{ print ($1=="vmess" ? $2 : $2 "#" $1) }' "$CRASHDIR"/configs/providers_uri.cfg >"$CRASHDIR"/providers/uri_group
+            awk 'NF >= 2 && $1 !~ /^#/ { print ($1=="vmess" ? $2 : ($2 ~ /#/ ? $2 : $2 "#" $1)) }' "$CRASHDIR"/configs/providers_uri.cfg >"$CRASHDIR"/providers/uri_group
             gen_providers_txt "Uri_group" "./providers/uri_group" "3" "12"
             providers_tags=$(echo "$providers_tags, \"Uri_group\"" | sed 's/^, //')
         }
@@ -61,16 +70,34 @@ EOF
     # 修复文件格式
     sed -i '$s/},/}]}/' "$TMPDIR"/providers/outbounds_add.json
     sed -i '$s/},/}]}/' "$TMPDIR"/providers/providers.json
-    # 使用模版生成outbounds和rules模块
-    cat "$TMPDIR"/provider_temp_file | sed "s/{providers_tags}/$providers_tags/g" | sed "s/\"providers_tags\"/$providers_tags/g" >"$TMPDIR"/providers/outbounds.json
+    # 使用模版生成outbounds和rules模块（ENVIRON 避免 & / \ 破坏替换）
+    PS_TAGS="$providers_tags" awk '{
+        rep = ENVIRON["PS_TAGS"]
+        line = $0
+        for (p = 1; p <= 2; p++) {
+            pat = (p == 1 ? "{providers_tags}" : "\"providers_tags\"")
+            plen = length(pat)
+            out = ""
+            rest = line
+            while ((i = index(rest, pat)) > 0) {
+                out = out substr(rest, 1, i - 1) rep
+                rest = substr(rest, i + plen)
+            }
+            line = out rest
+        }
+        print line
+    }' "$TMPDIR"/provider_temp_file >"$TMPDIR"/providers/outbounds.json
     rm -rf "$TMPDIR"/provider_temp_file
+    # 同步 $BINDIR/providers 软链，兼容分目录安装
+    [ -n "$BINDIR" ] && [ "$BINDIR" != "$CRASHDIR" ] && [ -d "$CRASHDIR/providers" ] && [ ! -e "$BINDIR/providers" ] &&
+        ln -sf "$CRASHDIR/providers" "$BINDIR/providers" 2>/dev/null
     # 调用内核测试
     . "$CRASHDIR"/starts/check_core.sh && check_core && "$TMPDIR"/CrashCore merge "$TMPDIR"/config.json -C "$TMPDIR"/providers
     if [ "$?" = 0 ]; then
         msg_alert "\033[32m$PROVIDERS_GEN_OK_SINGBOX\033[0m"
         mkdir -p "$CRASHDIR"/jsons
         mv -f "$TMPDIR"/config.json "$CRASHDIR"/jsons/config.json
-        rm -rf "$TMPDIR"/providerss
+        rm -rf "$TMPDIR"/providers
         comp_box "$PROVIDERS_RESTART_ASK"
         btm_box "1) $PROVIDERS_YES" \
             "0) $PROVIDERS_NO"
@@ -82,41 +109,47 @@ EOF
     else
         rm -rf "$TMPDIR"/CrashCore
         msg_alert "\033[31m$PROVIDERS_GEN_FAILED\033[0m"
-        # rm -rf "$TMPDIR"/providers
+        rm -rf "$TMPDIR"/providers
     fi
 }
 
 gen_providers_txt() {
     tag=$1
+    tag_esc=$(_ps_esc "$1")
+    link_esc=$(_ps_esc "$2")
     interval=${3:-3}
     interval2=${4:-12}
-    ua=${5:-clash.meta}
-    exclude=${6#\#}
-    include=${7#\#}
+    echo "$interval" | grep -Eq '^[0-9]+$' || interval=3
+    echo "$interval2" | grep -Eq '^[0-9]+$' || interval2=12
+    ua=$(_ps_esc "${5:-clash.meta}")
+    exclude=$(_ps_esc "${6#\#}")
+    include=$(_ps_esc "${7#\#}")
+    exclude_ele=''
+    include_ele=''
     [ -n "$exclude" ] && exclude_ele="\"exclude\": \"$exclude\","
     [ -n "$include" ] && include_ele="\"include\": \"$include\","
     if [ -n "$(echo "$2" | grep -E '^./')" ]; then
         cat >>"$TMPDIR"/providers/providers.json <<EOF
     {
-      "tag": "$tag",
+      "tag": "$tag_esc",
       "type": "local",
-      "path": "$2",
+      "path": "$link_esc",
 EOF
     else
         cat >>"$TMPDIR"/providers/providers.json <<EOF
     {
-      "tag": "$tag",
+      "tag": "$tag_esc",
       "type": "remote",
-      "url": "$2",
-      "path": "./providers/$tag.yaml",
+      "url": "$link_esc",
+      "path": "./providers/$tag_esc.yaml",
       "user_agent": "$ua",
       "update_interval": "${interval2}h",
       $exclude_ele
       $include_ele
 EOF
     fi
-    # 通用部分生成
-    [ "$skip_cert" != "OFF" ] && override_tls='true' || override_tls='false'
+    # 通用部分生成（TLS fail-closed：仅 skip_cert=ON 时跳过证书校验）
+    [ "$skip_cert" = "ON" ] && override_tls='true' || override_tls='false'
     cat >>"$TMPDIR"/providers/providers.json <<EOF
       "health_check": {
         "enabled": true,
@@ -134,5 +167,5 @@ EOF
     },
 EOF
     # 写入提供者
-    echo '{ "tag": "'"$tag"'", "type": "urltest", "tolerance": 100, "providers": ["'"$tag"'"], "include": ".*" },' >>"$TMPDIR"/providers/outbounds_add.json
+    echo '{ "tag": "'"$tag_esc"'", "type": "urltest", "tolerance": 100, "providers": ["'"$tag_esc"'"], "include": ".*" },' >>"$TMPDIR"/providers/outbounds_add.json
 }

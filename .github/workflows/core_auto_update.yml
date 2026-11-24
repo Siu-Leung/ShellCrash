@@ -12,7 +12,9 @@ concurrency:
 jobs:
     
   auto_update_singboxr_dev:
-    permissions: write-all
+    permissions:
+      contents: write
+      actions: write
     uses: Siu-Leung/ShellCrash/.github/workflows/update_singbox_core.yaml@dev
     with:
       tag1: reF1nd/sing-box
@@ -23,7 +25,9 @@ jobs:
     secrets: inherit
     
   auto_update_meta_alpha:
-    permissions: write-all
+    permissions:
+      contents: write
+      actions: write
     needs: auto_update_singboxr_dev
     uses: Siu-Leung/ShellCrash/.github/workflows/update_meta_core.yaml@dev
     with:
@@ -35,10 +39,12 @@ jobs:
     secrets: inherit
     
   cleanup:
+    permissions:
+      actions: write
     runs-on: ubuntu-latest
     steps:
       - name: cleanup
         uses: Mattraks/delete-workflow-runs@main
         with:
           retain_days: 1
-          keep_minimum_runs: 2   
+          keep_minimum_runs: 2

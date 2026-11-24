@@ -122,11 +122,25 @@ set_core_config() {
     done
 }
 
+# 校验提供者名称，拒绝路径穿越和 YAML/JSON/Shell 危险字符
+_valid_provider_name() {
+    [ -n "$1" ] || return 1
+    echo "$1" | grep -Eq '^[0-9]+$' && return 1
+    case "$1" in
+    *..* | */* | *\\* | *\"* | *\'* | *\`* | *\$* | *\;* | *\|* | *\#* | *\[* | *\]* | *\{* | *\}* | *,* | *:*)
+        return 1
+        ;;
+    esac
+    return 0
+}
+
 # 添加/管理提供者
 setproviders() {
     case "$(echo "$@" | cut -d ' ' -f 2)" in
     http* | ./providers*)
+        set -f
         set -- $@
+        set +f
         name=$1
         link=$2
         interval=$3
@@ -136,7 +150,9 @@ setproviders() {
         include_w=${7#\#}
         ;;
     *://*)
+        set -f
         set -- $@
+        set +f
         name=$1
         link_uri=$2
         ;;
@@ -183,10 +199,10 @@ setproviders() {
                 btm_box "\033[36m$CORECFG_INPUT_NAME\033[0m" \
                     "$CORECFG_OR_BACK"
                 read -r -p "$CORECFG_INPUT> " text
-                text=$(printf "%.12s" "$text" | sed 's/ //g') # 截断12字符+去空格
+                text=$(printf "%.12s" "$text" | tr -d ' \t\r\n') # 截断12字符+去空白
                 if [ "$text" = 0 ]; then
                     break
-                elif [ -n "$text" ] && [ -z "$(echo "$text" | grep -E '^[0-9]+$')" ] && ! grep -q "^$text " "$CRASHDIR"/configs/providers.cfg 2>/dev/null; then
+                elif _valid_provider_name "$text" && ! grep -Fq "$text " "$CRASHDIR"/configs/providers.cfg 2>/dev/null; then
                     name="$text"
                     common_success
                     break
@@ -239,7 +255,7 @@ setproviders() {
                     file=$(printf '%s\n' "$list" | sed -n "${text}p")
                     if [ -s "$CRASHDIR/providers/$file" ]; then
                         link="./providers/$file"
-                        [ -z "$name" ] && name="_$(printf "%.12s" "$file" | sed 's/ //g')"
+                        [ -z "$name" ] && name="_$(printf "%.11s" "$file" | tr -d ' \t\r\n/\\"`$[]{},:#|;'\''')"
                         link_uri=''
                         common_success
                         break
@@ -252,7 +268,15 @@ setproviders() {
                     if [ -n "$(echo "$text" | grep -E "^$URI_EXP")" ]; then
                         link_uri=$(echo "$text" | sed 's/#.*//g') # 删除注释
                         link=''
-                        [ -z "$name" ] && name=$(printf '%b' "$(printf '%s' "$text" | sed 's/+/ /g; s/%/\\x/g')" | sed 's/.*#//')
+                        if [ -z "$name" ]; then
+                            _raw_tag=$(printf '%s' "$text" | sed -n 's/.*#//p')
+                            _raw_tag=$(printf '%s' "$_raw_tag" | tr -d ' \t\r\n/\\"`$[]{},:#|;'\''' | cut -c 1-12)
+                            if _valid_provider_name "$_raw_tag"; then
+                                name="$_raw_tag"
+                            else
+                                name="node_$(date +%s 2>/dev/null | tail -c 5)"
+                            fi
+                        fi
                         common_success
                         break
                     else
@@ -328,8 +352,16 @@ setproviders() {
                     "0) $COMMON_BACK"
                 read -r -p "$COMMON_INPUT> " res
                 [ "$res" = "1" ] && {
-                    file=$(echo "$CRASHDIR/$link" | sed 's|\./||')
-                    if [ -f "$file" ]; then
+                    file=""
+                    case "$link" in
+                    ./providers/*)
+                        case "$link" in
+                        *..*) ;;
+                        *) file="$CRASHDIR/${link#./}" ;;
+                        esac
+                        ;;
+                    esac
+                    if [ -n "$file" ] && [ -f "$file" ] && [ ! -L "$file" ]; then
                         [ -n "$name" ] && saveproviders
                         ln -sf "$file" "$CONFIG_PATH"
                         common_success
@@ -338,7 +370,7 @@ setproviders() {
                         [ -n "$name" ] && saveproviders
                         Https="$link"
                         Url=''
-                        setconfig Https "'$Https'"
+                        setconfig_quote Https "$Https"
                         setconfig Url
                         # 获取在线文件
                         jump_core_config
@@ -365,6 +397,7 @@ saveproviders() {
         [ -s "$CRASHDIR"/configs/providers_uri.cfg ] && delete_provider "$last_name" "$CRASHDIR"/configs/providers_uri.cfg
     }
     if [ -n "$name" ] && [ -n "$link" ]; then
+        [ -z "$ua" ] && ua='clash.meta'
         echo "$name $link $interval $interval2 $ua #$exclude_w #$include_w" >>"$CRASHDIR"/configs/providers.cfg
         return 0
     elif [ -n "$name" ] && [ -n "$link_uri" ]; then
@@ -401,7 +434,7 @@ custproviders() {
                 read -r -p "$CORECFG_INPUT> " num
                 if [ "$num" = "r" ]; then
                     interval=3
-                elif [ -n "$num" ] && [ "$num" -eq "$num" ] 2>/dev/null; then
+                elif echo "$num" | grep -Eq '^[0-9]+$' && [ "$num" -ge 1 ]; then
                     interval="$num"
                 else
                     errornum
@@ -413,14 +446,14 @@ custproviders() {
             ;;
         2)
             while true; do
-                comp_box "$CORECFG_CUR_INTERVAL$interval $CORECFG_MIN"
+                comp_box "$CORECFG_CUR_INTERVAL$interval2 $CORECFG_HOUR"
                 btm_box "\033[36m$CORECFG_INPUT_INTERVAL2\033[0m" \
                     "$CORECFG_RESET_INTERVAL2" \
                     "$CORECFG_OR_BACK"
                 read -r -p "$CORECFG_INPUT> " num
                 if [ "$num" = "r" ]; then
                     interval2=12
-                elif [ -n "$num" ] && [ "$num" -eq "$num" ] 2>/dev/null; then
+                elif echo "$num" | grep -Eq '^[0-9]+$' && [ "$num" -ge 1 ]; then
                     interval2="$num"
                 else
                     errornum
@@ -448,7 +481,8 @@ custproviders() {
                 ua='clash.meta'
                 ;;
             *)
-                ua="$text"
+                ua=$(echo "$text" | tr -d ' \t\r\n')
+                [ -z "$ua" ] && ua='clash.meta'
                 ;;
             esac
             common_success

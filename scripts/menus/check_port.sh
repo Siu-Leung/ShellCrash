@@ -20,7 +20,7 @@ check_port() {
     local port="$1"
     local protocol="${2:-all}"
 
-    if [ "$port" -gt 65535 ] || [ "$port" -le 1 ]; then
+    if ! echo "$port" | grep -Eq '^[0-9]+$' || [ "$port" -gt 65535 ] || [ "$port" -lt 1 ]; then
         msg_alert "\033[31m$CHECK_PORT_RANGE_ERR\033[0m"
         return 1
     fi

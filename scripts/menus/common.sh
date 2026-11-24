@@ -55,7 +55,7 @@ common_success() {
 }
 
 common_failed() {
-    msg_alert "\033[32m$COMMON_FAILED\033[0m"
+    msg_alert "\033[31m$COMMON_FAILED\033[0m"
 }
 
 # =================================================
@@ -77,7 +77,7 @@ error_input() {
 }
 
 error_cancel() {
-    error_report "\033[31m$COMMON_ERR_CANCEL\033[0m"
+    msg_alert "\033[31m$COMMON_ERR_CANCEL\033[0m"
 }
 
 cancel_back() {

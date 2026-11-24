@@ -1,8 +1,18 @@
-# ShellCrash (Official Docker Image)
+# ShellCrash (自建安全加固版 Docker 镜像)
 
-**ShellCrash 官方 Docker 镜像**，用于在容器环境中运行 ShellCrash，支持 **HTTP / SOCKS 代理** 与 **旁路由透明代理** 两种部署模式。
+**ShellCrash 自建 Docker 镜像**，用于在容器环境中运行 ShellCrash，支持 **HTTP / SOCKS 代理** 与 **旁路由透明代理** 两种部署模式。
 
-该镜像由 **ShellCrash 官方维护**，基于原项目脚本构建，并通过 Docker 多架构机制发布。
+本镜像由本仓库 `Dockerfile`（基于原作者 Juewuy 的开源脚本进行零信任加固）自主构建，避免依赖第三方预编译镜像。
+
+------
+
+## Build（本地构建镜像）
+
+在仓库根目录执行：
+
+```shell
+docker build -t shellcrash:local .
+```
 
 ------
 
@@ -13,9 +23,9 @@
 ```shell
 docker run -d \
   --name shellcrash \
-  -p 7890:7890 \
-  -p 9999:9999 \
-  juewuy/shellcrash:latest
+  -p 127.0.0.1:7890:7890 \
+  -p 127.0.0.1:9999:9999 \
+  shellcrash:local
 ```
 
 ------
@@ -60,7 +70,7 @@ docker run -d \
   --sysctl net.ipv4.ip_forward=1 \
   --device /dev/net/tun:/dev/net/tun \
   --restart unless-stopped \
-  juewuy/shellcrash:latest
+  shellcrash:local
 ```
 
 ### 3. 配置需要路由的设备

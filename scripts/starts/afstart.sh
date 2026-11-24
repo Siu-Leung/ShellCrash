@@ -59,11 +59,11 @@ if [ -n "$test" -o -n "$(pidof CrashCore)" ]; then
 	#加载条件任务
 	[ -s "$TASKCFGDIR"/afstart ] && { . "$TASKCFGDIR"/afstart; } &
 	[ -s "$TASKCFGDIR"/affirewall -a -s /etc/init.d/firewall -a ! -f /etc/init.d/firewall.bak ] && {
-		#注入防火墙
-		line=$(grep -En "fw.* restart" /etc/init.d/firewall | cut -d ":" -f 1)
-		sed -i.bak "${line}a\\. $TASKCFGDIR/affirewall" /etc/init.d/firewall
-		line=$(grep -En "fw.* start" /etc/init.d/firewall | cut -d ":" -f 1)
-		sed -i "${line}a\\. $TASKCFGDIR/affirewall" /etc/init.d/firewall
+		#注入防火墙（安全加固：仅取首行行号且非空时才注入，避免多行匹配或空行号破坏 firewall 脚本）
+		line=$(grep -En "fw.* restart" /etc/init.d/firewall | head -n 1 | cut -d ":" -f 1)
+		[ -n "$line" ] && sed -i.bak "${line}a\\. $TASKCFGDIR/affirewall" /etc/init.d/firewall
+		line=$(grep -En "fw.* start" /etc/init.d/firewall | head -n 1 | cut -d ":" -f 1)
+		[ -n "$line" ] && sed -i "${line}a\\. $TASKCFGDIR/affirewall" /etc/init.d/firewall
 	} &
 	exit 0
 else

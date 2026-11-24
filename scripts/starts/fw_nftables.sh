@@ -150,8 +150,9 @@ start_nft_wan() { #nftables公网防火墙
         nft add rule inet shellcrash input tcp dport $fw_wan_nfports meta mark set 0x67890 accept
         nft add rule inet shellcrash input udp dport $fw_wan_nfports meta mark set 0x67890 accept
     }
-    #端口拦截
-    reject_ports="{ $mix_port, $db_port }"
+    #端口拦截（安全加固：同步拦截 DNS 与透明代理端口防公网暴露）
+    _reject_dns="${dns_port:-${dns_redir_port:-1053}}"
+    reject_ports="{ ${mix_port:-7890}, ${db_port:-9999}, $_reject_dns, ${redir_port:-7892}, ${tproxy_port:-7893} }"
     nft add rule inet shellcrash input ip saddr {$HOST_IP} accept
     nft add rule inet shellcrash input ip6 saddr @lan_ip6 accept
     nft add rule inet shellcrash input tcp dport $reject_ports reject
@@ -209,7 +210,8 @@ start_nftables() { #nftables配置总入口
         [ "$lan_proxy" = true ] && start_nft_route prerouting prerouting filter -150
         [ "$local_proxy" = true ] && start_nft_route output output route -150
     }
-    [ "$vm_redir" = "ON" ] && [ -n "$$vm_ipv4" ] && {
+    # 修复双刀号 $$vm_ipv4 展开为 PID_ipv4 导致恒为真的逻辑缺陷
+    [ "$vm_redir" = "ON" ] && [ -n "$vm_ipv4" ] && {
         start_nft_dns prerouting_vm prerouting
         JUMP="meta l4proto tcp redirect to $redir_port" #跳转劫持的具体命令
         start_nft_route prerouting_vm prerouting nat -100

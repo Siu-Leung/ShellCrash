@@ -121,7 +121,9 @@ catpac                                       #生成pac文件
 #内核及内核配置文件检查
 [ "$CRASHDIR" != "$BINDIR" ] && {
     mkdir -p "$BINDIR"/providers
-    ln -sf "$CRASHDIR"/providers/* "$BINDIR"/providers/
+    for _pf in "$CRASHDIR"/providers/*; do
+        [ -f "$_pf" ] && ln -sf "$_pf" "$BINDIR"/providers/
+    done
 }
 if echo "$crashcore" | grep -q 'singbox'; then
     . "$CRASHDIR"/starts/singbox_check.sh && singbox_check
@@ -148,14 +150,14 @@ fi
     }
 }
 #添加shellcrash用户
-[ "$firewall_area" = 2 ] || [ "$firewall_area" = 3 ] || [ "$(cat /proc/1/comm)" = "systemd" ] &&
+{ [ "$firewall_area" = 2 ] || [ "$firewall_area" = 3 ] || [ "$(cat /proc/1/comm 2>/dev/null)" = "systemd" ]; } &&
     ! grep -q '^shellcrash:[^:]*:0:' /etc/passwd 2>/dev/null && {
     ckcmd userdel && userdel shellcrash 2>/dev/null
-    sed -i '/0:7890/d' /etc/passwd
-    sed -i '/x:7890/d' /etc/group
+    sed -i '/^shellcrash:/d' /etc/passwd
+    sed -i '/^shellcrash:/d' /etc/group
     if ckcmd useradd; then
-        useradd shellcrash -u 7890
-        sed -Ei s/7890:7890/0:7890/g /etc/passwd
+        useradd shellcrash -u 7890 2>/dev/null
+        sed -Ei 's/^(shellcrash:[^:]*:)7890:7890/\10:7890/' /etc/passwd
     else
         echo "shellcrash:x:0:7890:::" >>/etc/passwd
     fi
@@ -163,6 +165,6 @@ fi
 #加载系统内核组件
 [ "$redir_mod" = "Tun" -o "$redir_mod" = "Mix" ] && ckcmd modprobe && modprobe tun 2>/dev/null
 #清理debug日志
-rm -rf /tmp/ShellCrash/debug.log
+rm -rf "$TMPDIR"/debug.log
 rm -rf "$CRASHDIR"/debug.log
 exit 0

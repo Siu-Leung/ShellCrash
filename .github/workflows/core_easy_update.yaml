@@ -19,18 +19,26 @@ jobs:
       version: ${{ steps.get_version.outputs.version }}
     steps:
       - id: get_version
+        env:
+          CORE_NAME: ${{ inputs.tag1 }}
         run: |
-          [ "${{ inputs.tag1 }}" = meta ] && repo="MetaCubeX/mihomo"
-          [ "${{ inputs.tag1 }}" = singbox ] && repo="SagerNet/sing-box"
-          [ "${{ inputs.tag1 }}" = singboxr ] && repo="SagerNet/sing-box"
-          latest_tag=$(curl -s "https://api.github.com/repos/$repo/releases/latest" | jq -r .tag_name)
-          [ "${{ inputs.tag1 }}" = singboxr ] && latest_tag="${latest_tag}-reF1nd"
-          echo "version=$latest_tag" >> $GITHUB_OUTPUT
+          set -euo pipefail
+          case "$CORE_NAME" in
+            meta) repo="MetaCubeX/mihomo" ;;
+            singbox|singboxr) repo="SagerNet/sing-box" ;;
+            *) echo "Invalid core: $CORE_NAME" >&2; exit 1 ;;
+          esac
+          latest_tag=$(curl -fsSL "https://api.github.com/repos/$repo/releases/latest" | jq -r .tag_name)
+          [ -n "$latest_tag" ] && [ "$latest_tag" != "null" ] || { echo "Failed to resolve latest tag" >&2; exit 1; }
+          [ "$CORE_NAME" = singboxr ] && latest_tag="${latest_tag}-reF1nd"
+          echo "version=$latest_tag" >> "$GITHUB_OUTPUT"
           
   update_meta_upx:
     if: github.event.inputs.tag1 == 'meta'
     needs: get_version
-    permissions: write-all
+    permissions:
+      contents: write
+      actions: write
     uses: Siu-Leung/ShellCrash/.github/workflows/update_meta_core.yaml@dev
     with:
       tag1: MetaCubeX/mihomo
@@ -43,7 +51,9 @@ jobs:
   update_meta_tar:
     if: github.event.inputs.tag1 == 'meta'
     needs: [get_version, update_meta_upx]
-    permissions: write-all
+    permissions:
+      contents: write
+      actions: write
     uses: Siu-Leung/ShellCrash/.github/workflows/update_meta_core.yaml@dev
     with:
       tag1: MetaCubeX/mihomo
@@ -56,7 +66,9 @@ jobs:
   update_singboxr_upx:
     if: github.event.inputs.tag1 == 'singboxr'
     needs: get_version
-    permissions: write-all
+    permissions:
+      contents: write
+      actions: write
     uses: Siu-Leung/ShellCrash/.github/workflows/update_singbox_core.yaml@dev
     with:
       tag1: reF1nd/sing-box
@@ -69,7 +81,9 @@ jobs:
   update_singboxr_tar:
     if: github.event.inputs.tag1 == 'singboxr'
     needs: [get_version, update_singboxr_upx]
-    permissions: write-all
+    permissions:
+      contents: write
+      actions: write
     uses: Siu-Leung/ShellCrash/.github/workflows/update_singbox_core.yaml@dev
     with:
       tag1: reF1nd/sing-box
@@ -82,7 +96,9 @@ jobs:
   update_singbox_upx:
     if: github.event.inputs.tag1 == 'singbox'
     needs: get_version
-    permissions: write-all
+    permissions:
+      contents: write
+      actions: write
     uses: Siu-Leung/ShellCrash/.github/workflows/update_singbox_core.yaml@dev
     with:
       tag1: SagerNet/sing-box
@@ -91,4 +107,3 @@ jobs:
       tag5: with_quic,with_utls,with_clash_api
       tag6: upx
     secrets: inherit
-    

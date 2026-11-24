@@ -64,7 +64,7 @@ MENU_MAIN_PROMPT="Please enter a number > "
 MENU_SERVICE_STOPPED="Service has been stopped!"
 
 # ===== Test / Debug =====
-MENU_TEST_RUNNING="Running test mode. If errors occur, please take a screenshot and seek assistance."
+MENU_TEST_RUNNING_1="Running test mode!"
 MENU_TEST_DONE_OK="Test completed! No issues found. Please restart the service."
 MENU_TEST_DONE_FAIL="Test completed!"
 MENU_TEST_LOG_HINT="Full execution log can be found at:"

@@ -13,14 +13,17 @@ fi
 set_usb_dir() {
     while true; do
         comp_box "$SCD_SELECT_INSTALL_DIR"
-        du -hL /mnt |
+        du -hL /mnt 2>/dev/null |
             awk '{print NR") "$2 " " $1}' |
             while IFS= read -r line; do
                 content_line "$line"
             done
         separator_line "="
         read -r -p "$SCD_INPUT_NUM> " num
-        dir=$(du -hL /mnt | awk '{print $2}' | sed -n "$num"p)
+        dir=""
+        if echo "$num" | grep -Eq '^[1-9][0-9]*$'; then
+            dir=$(du -hL /mnt 2>/dev/null | awk '{print $2}' | sed -n "${num}p")
+        fi
         if [ -z "$dir" ]; then
             msg_alert "\033[31m$SCD_INPUT_ERROR\033[0m"
             continue
@@ -62,15 +65,18 @@ set_xiaomi_dir() {
 set_asus_usb() {
     while true; do
         comp_box "$SCD_SELECT_USB_DIR"
-        du -hL /tmp/mnt |
+        du -hL /tmp/mnt 2>/dev/null |
             awk -F/ 'NF<=4 {print NR") "$2 " " $1}' |
             while IFS= read -r line; do
                 content_line "$line"
             done
         separator_line "="
         read -r -p "$SCD_INPUT_NUM> " num
-        dir=$(du -hL /tmp/mnt | awk -F/ 'NF<=4' | awk '{print $2}' | sed -n "$num"p)
-        if [ ! -f "$dir/asusware.arm/etc/init.d/S50downloadmaster" ]; then
+        dir=""
+        if echo "$num" | grep -Eq '^[1-9][0-9]*$'; then
+            dir=$(du -hL /tmp/mnt 2>/dev/null | awk -F/ 'NF<=4' | awk '{print $2}' | sed -n "${num}p")
+        fi
+        if [ -z "$dir" ] || [ ! -f "$dir/asusware.arm/etc/init.d/S50downloadmaster" ]; then
             msg_alert "\033[31m$SCD_ASUS_DM_NOT_FOUND $dir/asusware.arm/etc/init.d/S50downloadmaster，$SCD_CHECK_SETTING\033[0m"
         else
             break
@@ -115,7 +121,7 @@ set_cust_dir() {
             done
         separator_line "="
         read -r -p "$SCD_INPUT_CUSTOM_DIR> " dir
-        if [ "$(dir_avail "$dir")" = 0 ] || [ -n "$(echo "$dir" | grep -Eq '^/(tmp|opt|sys)(/|$)')" ]; then
+        if [ -z "$dir" ] || [ "$(dir_avail "$dir")" = 0 ] || echo "$dir" | grep -Eq '^/(tmp|opt|sys)(/|$)'; then
             msg_alert "\033[31m$SCD_PATH_ERROR\033[0m"
             continue
         fi

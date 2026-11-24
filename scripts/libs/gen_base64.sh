@@ -5,7 +5,7 @@ gen_random() {
     elif ckcmd base64;then
         head -c "$1" /dev/urandom | base64 | tr -d '\n'
     elif busybox base64 --help >/dev/null 2>&1;then
-        head -c "$1" /dev/urandom | base64 | tr -d '\n'
+        head -c "$1" /dev/urandom | busybox base64 | tr -d '\n'
     elif ckcmd uuencode;then
         head -c "$1" /dev/urandom | uuencode -m - | sed -n '2p'
     else

@@ -10,7 +10,7 @@ load_lang 8_tools
 
 stop_iptables() {
     iptables -w -t nat -D PREROUTING -p tcp -m multiport --dports "$ssh_port" -j REDIRECT --to-ports 22 >/dev/null 2>&1
-    ip6tables -w -t nat -A PREROUTING -p tcp -m multiport --dports "$ssh_port" -j REDIRECT --to-ports 22 >/dev/null 2>&1
+    ip6tables -w -t nat -D PREROUTING -p tcp -m multiport --dports "$ssh_port" -j REDIRECT --to-ports 22 >/dev/null 2>&1
 }
 
 ssh_tools() {
@@ -32,11 +32,11 @@ ssh_tools() {
         1)
             line_break
             read -r -p "$TOOLS_PROMPT_PORT" num
-            if [ -z "$num" ]; then
+            if ! echo "$num" | grep -Eq '^[0-9]+$'; then
                 errornum
             elif [ "$num" -gt 65535 ] || [ "$num" -le 999 ]; then
                 msg_alert "\033[31m$TOOLS_ERR_PORT\033[0m"
-            elif [ -n "$(netstat -ntul | grep :$num)" ]; then
+            elif [ -n "$(netstat -ntul 2>/dev/null | grep ":$num ")" ]; then
                 msg_alert "\033[31m$TOOLS_ERR_PORT_OCCUPIED\033[0m"
             else
                 ssh_port=$num
@@ -54,9 +54,9 @@ ssh_tools() {
         3)
             if [ "$ssh_ol" = "$TOOLS_SSH_ENABLE" ]; then
                 iptables -w -t nat -A PREROUTING -p tcp -m multiport --dports "$ssh_port" -j REDIRECT --to-ports 22
-                [ -n "$(ckcmd ip6tables)" ] && ip6tables -w -t nat -A PREROUTING -p tcp -m multiport --dports "$ssh_port" -j REDIRECT --to-ports 22
+                ckcmd ip6tables && ip6tables -w -t nat -A PREROUTING -p tcp -m multiport --dports "$ssh_port" -j REDIRECT --to-ports 22
                 echo "iptables -w -t nat -A PREROUTING -p tcp -m multiport --dports $ssh_port -j REDIRECT --to-ports 22 #启用外网访问SSH服务" >>/etc/firewall.user
-                [ -n "$(ckcmd ip6tables)" ] && echo "ip6tables -w -t nat -A PREROUTING -p tcp -m multiport --dports $ssh_port -j REDIRECT --to-ports 22 #启用外网访问SSH服务" >>/etc/firewall.user
+                ckcmd ip6tables && echo "ip6tables -w -t nat -A PREROUTING -p tcp -m multiport --dports $ssh_port -j REDIRECT --to-ports 22 #启用外网访问SSH服务" >>/etc/firewall.user
                 comp_box "$TOOLS_SSH_ENABLED"
             else
                 sed -i "/启用外网访问SSH服务/d" /etc/firewall.user
@@ -76,7 +76,7 @@ ssh_tools() {
 tools() {
     while true; do
         # 获取设置默认显示
-        grep -qE "^\s*[^#].*otapredownload" /etc/crontabs/root >/dev/null 2>&1 && mi_update=$TOOLS_DISABLE || mi_update=$TOOLS_ENABLE
+        grep -qE "^[[:space:]]*[^#].*otapredownload" /etc/crontabs/root >/dev/null 2>&1 && mi_update=$TOOLS_DISABLE || mi_update=$TOOLS_ENABLE
         [ "$mi_mi_autoSSH" = "$TOOLS_CONFIGURED" ] && mi_mi_autoSSH_type=32m$TOOLS_CONFIGURED || mi_mi_autoSSH_type=31m$COMMON_UNSET
         [ -f "$CRASHDIR"/tools/tun.ko ] && mi_tunfix=32mON || mi_tunfix=31mOFF
         comp_box "\033[30;47m$TOOLS_TITLE\033[0m" \
@@ -120,7 +120,7 @@ tools() {
                         echo "#15 3,4,5 * * * /usr/sbin/otapredownload >/dev/null 2>&1" >>/etc/crontabs/root
                 else
                     grep -q "otapredownload" /etc/crontabs/root &&
-                        sed -i "/^\s*#.*otapredownload/ s/^\s*#//" /etc/crontabs/root ||
+                        sed -i "/^[[:space:]]*#.*otapredownload/ s/^[[:space:]]*#//" /etc/crontabs/root ||
                         echo "15 3,4,5 * * * /usr/sbin/otapredownload >/dev/null 2>&1" >>/etc/crontabs/root
                 fi
                 [ "$mi_update" = "$TOOLS_DISABLE" ] && mi_update=$TOOLS_ENABLE || mi_update=$TOOLS_DISABLE
@@ -212,7 +212,7 @@ mi_autoSSH() {
         nvram commit
     }
     setconfig mi_mi_autoSSH $mi_mi_autoSSH
-    setconfig mi_mi_autoSSH_pwd "$mi_mi_autoSSH_pwd"
+    setconfig_quote mi_mi_autoSSH_pwd "$mi_mi_autoSSH_pwd"
     msg_alert "\033[32m$COMMON_SUCCESS\033[0m"
 }
 
@@ -325,7 +325,7 @@ log_pusher() {
                         continue
                     fi
                     push_Deer_url=${url%/}
-                    setconfig push_Deer_url "${url%/}"
+                    setconfig_quote push_Deer_url "${url%/}"
                     ;;
                 1)
                     push_Deer_url=
@@ -347,7 +347,7 @@ log_pusher() {
                     continue
                 elif [ -n "$url" ]; then
                     push_Deer=$url
-                    setconfig push_Deer "$url"
+                    setconfig_quote push_Deer "$url"
                     logger "$TOOLS_PUSHDEER_OK" 32
                 else
                     msg_alert "\033[31m$COMMON_ERR_INPUT\033[0m"
@@ -379,7 +379,7 @@ log_pusher() {
                     continue
                 elif [ -n "$url" ]; then
                     push_bark=$url
-                    setconfig push_bark "$url"
+                    setconfig_quote push_bark "$url"
                     logger "$TOOLS_BARK_OK" 32
                 else
                     msg_alert "\033[31m$COMMON_ERR_INPUT\033[0m"
@@ -420,8 +420,8 @@ log_pusher() {
                         if [ -n "$Token" ]; then
                             push_Po=$Token
                             push_Po_key=$key
-                            setconfig push_Po "$Token"
-                            setconfig push_Po_key "$key"
+                            setconfig_quote push_Po "$Token"
+                            setconfig_quote push_Po_key "$key"
                             logger "$TOOLS_PUSHOVER_OK" 32
                         else
                             msg_alert "\033[31m$COMMON_ERR_INPUT\033[0m"
@@ -456,7 +456,7 @@ log_pusher() {
                     continue
                 elif [ -n "$Token" ]; then
                     push_PP=$Token
-                    setconfig push_PP "$Token"
+                    setconfig_quote push_PP "$Token"
                     logger "$TOOLS_PUSHPLUS_OK" 32
                 else
                     msg_alert "\033[31m$COMMON_ERR_INPUT\033[0m"
@@ -483,10 +483,10 @@ log_pusher() {
                 read -r -p "$TOOLS_SYNOCHAT_USERID_INPUT" USERID
                 if [ -n "$URL" ]; then
                     push_SynoChat=$USERID
-                    setconfig push_SynoChat "$USERID"
-                    setconfig push_ChatURL "$URL"
-                    setconfig push_ChatTOKEN "$TOKEN"
-                    setconfig push_ChatUSERID "$USERID"
+                    setconfig_quote push_SynoChat "$USERID"
+                    setconfig_quote push_ChatURL "$URL"
+                    setconfig_quote push_ChatTOKEN "$TOKEN"
+                    setconfig_quote push_ChatUSERID "$USERID"
                     logger "$TOOLS_SYNOCHAT_OK" 32
                 else
                     setconfig push_ChatURL
@@ -522,7 +522,7 @@ log_pusher() {
                     continue
                 elif [ -n "$url" ]; then
                     push_Gotify=$url
-                    setconfig push_Gotify "$url"
+                    setconfig_quote push_Gotify "$url"
                     logger "$TOOLS_GOTIFY_OK" 32
                 else
                     msg_alert "\033[31m$COMMON_ERR_INPUT\033[0m"
@@ -550,7 +550,7 @@ log_pusher() {
                 "$TOOLS_DEVICE_NAME_BACK"
             read -r -p "$TOOLS_AUTO_SSH_INPUT" device_name
             if [ -n "$device_name" ]; then
-                setconfig device_name "$device_name"
+                setconfig_quote device_name "$device_name"
             fi
             ;;
         d)
@@ -662,17 +662,14 @@ testcommand() {
             ;;
         6)
             comp_box "\033[33m$TOOLS_PROXY_NOTE\033[0m"
-            delay=$(
-                curl -kx ${authentication}@127.0.0.1:$mix_port -o /dev/null -s -w '%{time_starttransfer}' 'https://google.tw' &
-                {
-                    sleep 3
-                    kill $! >/dev/null 2>&1 &
-                }
-            ) >/dev/null 2>&1
-            delay=$(echo | awk "{print $delay*1000}") >/dev/null 2>&1
+            _cert_opt=''
+            [ "$skip_cert" = "ON" ] && _cert_opt='-k'
+            [ -n "$authentication" ] && _px_url="http://${authentication}@127.0.0.1:${mix_port}" || _px_url="http://127.0.0.1:${mix_port}"
+            delay=$(curl $_cert_opt --max-time 3 -x "$_px_url" -o /dev/null -s -w '%{time_starttransfer}' 'https://google.tw' 2>/dev/null)
+            delay=$(awk -v d="$delay" 'BEGIN{if(d+0 > 0) printf "%.1f", d*1000}' 2>/dev/null)
             line_break
             separator_line "="
-            if [ $(echo ${#delay}) -gt 1 ]; then
+            if [ -n "$delay" ]; then
                 content_line "\033[32m$TOOLS_PROXY_OK$delay ms\033[0m"
             else
                 content_line "\033[31m$TOOLS_PROXY_TIMEOUT\033[0m"

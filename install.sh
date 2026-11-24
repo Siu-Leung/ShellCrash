@@ -75,7 +75,7 @@ set_alias() {
         cecho " 3 【\033[32m mm \033[0m】"
         cecho " 0 退出安装"
         echo "-----------------------------------------------"
-        read -p "请输入相应数字或自定义别名 > " res
+        read -r -p "请输入相应数字或自定义别名 > " res
         case "$res" in
         0)
             echo "安装已取消"
@@ -94,7 +94,13 @@ set_alias() {
             my_alias=$res
             ;;
         esac
-        cmd=$(ckcmd "$my_alias" | grep 'menu.sh')
+        if ! echo "$my_alias" | grep -Eq '^[A-Za-z_][A-Za-z0-9_-]*$'; then
+            cecho "\033[31m别名仅支持字母、数字、下划线和连字符，且不能以数字开头！\033[0m"
+            sleep 1
+            continue
+        fi
+        cmd=$(alias "$my_alias" 2>/dev/null | grep 'menu.sh')
+        [ -z "$cmd" ] && cmd=$(command -v "$my_alias" 2>/dev/null | grep 'menu.sh')
         ckcmd "$my_alias" && [ -z "$cmd" ] && {
             cecho "\033[33m此别名和当前系统内置命令/别名冲突，请换一个！\033[0m"
             sleep 1
@@ -104,8 +110,10 @@ set_alias() {
     done
 }
 gettar() {
-    webget /tmp/ShellCrash.tar.gz "$url/ShellCrash.tar.gz" >/dev/null 2>&1
+    tar_tmp=$(mktemp /tmp/ShellCrash.tar.gz.XXXXXX 2>/dev/null || echo "/tmp/ShellCrash.tar.gz.$$")
+    webget "$tar_tmp" "$url/ShellCrash.tar.gz" >/dev/null 2>&1
     if [ "$result" != "200" ]; then
+        rm -f "$tar_tmp"
         cecho "\033[33m文件下载失败！\033[0m"
         error_down
         exit 1
@@ -115,13 +123,13 @@ gettar() {
         echo "-----------------------------------------------"
         echo "开始解压文件！"
         mkdir -p "$CRASHDIR" >/dev/null
-        tar -zxf '/tmp/ShellCrash.tar.gz' -C "$CRASHDIR"/ || tar -zxf '/tmp/ShellCrash.tar.gz' --no-same-owner -C "$CRASHDIR"/
+        tar -zxf "$tar_tmp" -C "$CRASHDIR"/ || tar -zxf "$tar_tmp" --no-same-owner -C "$CRASHDIR"/
+        rm -f "$tar_tmp"
         if [ -s "$CRASHDIR"/init.sh ]; then
             set_alias
             . "$CRASHDIR"/init.sh >/dev/null
             [ "$?" != 0 ] && cecho "\033[33m初始化失败，请尝试本地安装！\033[0m" && exit 1
         else
-            rm -rf /tmp/ShellCrash.tar.gz
             cecho "\033[33m文件解压失败！\033[0m"
             error_down
             exit 1
@@ -131,9 +139,12 @@ gettar() {
 set_usb_dir() {
     while true; do
         cecho "请选择安装目录"
-        du -hL /mnt | awk '{print " "NR" "$2"  "$1}'
-        read -p "请输入相应数字 > " num
-        dir=$(du -hL /mnt | awk '{print $2}' | sed -n "$num"p)
+        du -hL /mnt 2>/dev/null | awk '{print " "NR" "$2"  "$1}'
+        read -r -p "请输入相应数字 > " num
+        dir=""
+        if echo "$num" | grep -Eq '^[1-9][0-9]*$'; then
+            dir=$(du -hL /mnt 2>/dev/null | awk '{print $2}' | sed -n "${num}p")
+        fi
         if [ -z "$dir" ]; then
             cecho "\033[31m输入错误！请重新设置！\033[0m"
             continue
@@ -149,7 +160,7 @@ set_xiaomi_dir() {
 	cecho " 4 安装到自定义目录(不推荐，不明勿用！)"
 	cecho " 0 退出安装"
 	echo "-----------------------------------------------"
-	read -p "请输入相应数字 > " num
+	read -r -p "请输入相应数字 > " num
 	case "$num" in
 	1)
 		dir=/data
@@ -171,10 +182,13 @@ set_xiaomi_dir() {
 set_asus_usb() {
 	while true; do
 		echo -e "请选择U盘目录"
-		du -hL /tmp/mnt | awk -F/ 'NF<=4' | awk '{print " "NR" "$2"  "$1}'
-		read -p "请输入相应数字 > " num
-		dir=$(du -hL /tmp/mnt | awk -F/ 'NF<=4' | awk '{print $2}' | sed -n "$num"p)
-		if [ ! -f "$dir/asusware.arm/etc/init.d/S50downloadmaster" ]; then
+		du -hL /tmp/mnt 2>/dev/null | awk -F/ 'NF<=4' | awk '{print " "NR" "$2"  "$1}'
+		read -r -p "请输入相应数字 > " num
+		dir=""
+		if echo "$num" | grep -Eq '^[1-9][0-9]*$'; then
+			dir=$(du -hL /tmp/mnt 2>/dev/null | awk -F/ 'NF<=4' | awk '{print $2}' | sed -n "${num}p")
+		fi
+		if [ -z "$dir" ] || [ ! -f "$dir/asusware.arm/etc/init.d/S50downloadmaster" ]; then
 			echo -e "\033[31m未找到下载大师自启文件：$dir/asusware.arm/etc/init.d/S50downloadmaster，请检查设置！\033[0m"
 			sleep 1
 		else
@@ -188,7 +202,7 @@ set_asus_dir() {
 	cecho " 2 基于自启脚本安装(仅支持部分梅林固件)"
 	cecho " 0 退出安装"
 	echo "-----------------------------------------------"
-	read -p "请输入相应数字 > " num
+	read -r -p "请输入相应数字 > " num
 	case "$num" in
 	1)
 		echo -e "请先在路由器网页后台安装下载大师并启用，之后选择外置存储所在目录！"
@@ -211,8 +225,8 @@ set_cust_dir() {
         echo '可用路径 剩余空间：'
         df -h | awk '{print $6,$4}' | sed 1d
         echo '路径是必须带 / 的格式，注意写入虚拟内存(/tmp,/opt,/sys...)的文件会在重启后消失！！！'
-        read -p "请输入自定义路径 > " dir
-        if [ "$(dir_avail "$dir")" = 0 ] || [ -n "$(echo "$dir" | grep -Eq '^/(tmp|opt|sys)(/|$)')" ]; then
+        read -r -p "请输入自定义路径 > " dir
+        if [ -z "$dir" ] || [ "$(dir_avail "$dir")" = 0 ] || echo "$dir" | grep -Eq '^/(tmp|opt|sys)(/|$)'; then
             cecho "\033[31m路径错误！请重新设置！\033[0m"
             continue
         fi
@@ -237,7 +251,7 @@ setdir() {
 				cecho " 5 手动设置安装目录"
 				cecho " 0 退出安装"
 				echo "----------------------------------------------"
-				read -p "请输入相应数字 > " num
+				read -r -p "请输入相应数字 > " num
 				# 设置目录
 				case "$num" in
 				1)
@@ -269,7 +283,7 @@ setdir() {
             sleep 1
         else
             cecho "目标目录\033[32m$dir\033[0m空间剩余：$(dir_avail "$dir" -h)"
-            read -p "确认安装？(1/0) > " res
+            read -r -p "确认安装？(1/0) > " res
             if [ "$res" = "1" ]; then
                 CRASHDIR="$dir"/ShellCrash
                 break
@@ -297,9 +311,9 @@ setversion() {
     cecho "\033[33m本加固版仅提供单一版本：\033[0m"
     cecho " 1 \033[32m加固版(dev，推荐)\033[0m"
     echo "-----------------------------------------------"
-    read -p "请输入相应数字 > " num
+    read -r -p "请输入相应数字 > " num
     release_type=dev
-    url=$(echo "$url" | sed "s/@[a-z]*/@dev/; s#/master#/dev#")
+    url=$(echo "$url" | sed "s/@[A-Za-z0-9_.-]*/@dev/; s#/master#/dev#; s#/stable#/dev#")
 }
 
 # 安装检查
@@ -317,19 +331,20 @@ check_systype() {
 	[ -w "/var/mnt/cfg/firewall" ] && systype=ng_snapshot   #NETGEAR设备
 }
 check_user() {
-	if [ "$USER" != "root" ] && [ -z "$systype" ]; then
-		echo "当前用户:$USER"
+	if [ "$(id -u 2>/dev/null)" != "0" ] && [ "$USER" != "root" ] && [ -z "$systype" ]; then
+		echo "当前用户:${USER:-$(id -un 2>/dev/null)}"
 		cecho "\033[31m请尽量使用root用户（不要直接使用sudo命令！）执行安装!\033[0m"
 		echo "-----------------------------------------------"
-		read -p "仍要安装？可能会产生未知错误！(1/0) > " res
+		read -r -p "仍要安装？可能会产生未知错误！(1/0) > " res
 		[ "$res" != "1" ] && exit 1
 	fi
 }
 check_version() {
-	echo "$url" | grep -q 'master' && setversion
-	webget /tmp/version "$url/version" echooff
-	[ "$result" = "200" ] && versionsh=$(cat /tmp/version)
-	rm -rf /tmp/version
+	echo "$url" | grep -Eq '(@|/)(master|stable)(/|$)' && setversion
+	ver_tmp=$(mktemp /tmp/sc_version.XXXXXX 2>/dev/null || echo "/tmp/sc_version.$$")
+	webget "$ver_tmp" "$url/version" echooff
+	[ "$result" = "200" ] && versionsh=$(head -n 1 "$ver_tmp" | tr -d '\r\n ')
+	rm -f "$ver_tmp"
 
 	# 输出
 	cecho "最新版本：\033[32m$versionsh\033[0m"

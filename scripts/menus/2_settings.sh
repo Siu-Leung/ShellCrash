@@ -42,7 +42,7 @@ settings() {
             break
             ;;
         1)
-            if [ "$USER" != root ] && [ "$USER" != admin ]; then
+            if [ "$(id -u 2>/dev/null)" != "0" ] && [ "$USER" != root ] && [ "$USER" != admin ]; then
                 comp_box "$SET_WARN_NONROOT"
                 btm_box "1) $SET_YES" \
                     "0) $SET_NO_BACK"
@@ -194,7 +194,7 @@ settings() {
                 separator_line "="
                 if [ -f "$BACK_TAR" ]; then
                     tar -zcf "$TMPDIR/configs.tar.gz" -C "$CRASHDIR/configs/" .
-                    rm -rf "$CRASHDIR/configs/*"
+                    rm -rf "$CRASHDIR"/configs/*
                     tar -zxf "$BACK_TAR" -C "$CRASHDIR"/configs
                     mv -f "$TMPDIR/configs.tar.gz" "$BACK_TAR"
                     content_line "\033[32m$SET_RESTORE_OK $BACK_TAR\033[0m"
@@ -208,9 +208,9 @@ settings() {
                 if tar -zcf "$BACK_TAR" -C "$CRASHDIR/configs/" .; then
                     rm -rf "$CRASHDIR/configs"
                     . "$CRASHDIR/init.sh" >/dev/null
-                    content_lin e"\033[32m$SET_RESET_OK\033[0m"
+                    content_line "\033[32m$SET_RESET_OK\033[0m"
                 else
-                    content_lin e"\033[32m$SET_RESET_FAIL\033[0m"
+                    content_line "\033[31m$SET_RESET_FAIL\033[0m"
                 fi
                 ;;
             *)
@@ -361,11 +361,11 @@ set_redir_mod() {
             fi
             ;;
         5)
-            redir_mod='$SET_BYPASS_TCP'
+            redir_mod='TCP旁路转发'
             set_redir_config
             ;;
         6)
-            redir_mod='$SET_BYPASS_TU'
+            redir_mod='T&U旁路转发'
             set_redir_config
             ;;
         7)
@@ -484,7 +484,7 @@ set_adv_config() {
                 else
                     authentication=$(echo "$input" | grep :)
                     if [ -n "$authentication" ]; then
-                        setconfig authentication "'$authentication'"
+                        setconfig_quote authentication "$authentication"
                         msg_alert "\033[32m$COMMON_SUCCESS\033[0m"
                     else
                         msg_alert "\033[31m$ADV_AUTH_INVALID\033[0m"
@@ -524,7 +524,7 @@ set_adv_config() {
             read -r -p "$ADV_PANEL_PASS_INPUT> " secret
             if [ -n "$secret" ]; then
                 [ "$secret" = "0" ] && secret=""
-                if setconfig secret "$secret"; then
+                if setconfig_quote secret "$secret"; then
                     common_success
                 else
                     common_failed
@@ -541,7 +541,7 @@ set_adv_config() {
                 msg_alert "\033[32m$ADV_HOST_REMOVED\033[0m"
                 line_break
                 exit 0
-            elif echo "$host" | grep -Eq '\<([1-9]|[1-9][0-9]|1[0-9]{2}|2[01][0-9]|22[0-3])\>(\.\<([0-9]|[0-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\>){2}\.\<([1-9]|[0-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-4])\>'; then
+            elif echo "$host" | grep -Eq '^([1-9]|[1-9][0-9]|1[0-9]{2}|2[01][0-9]|22[0-3])(\.([0-9]|[0-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])){2}\.([1-9]|[0-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-4])$'; then
                 if setconfig host "$host"; then
                     common_success
                 else
@@ -557,10 +557,14 @@ set_adv_config() {
             read -r -p "$ADV_TABLE_INPUT> " table
             if [ -n "$table" ]; then
                 [ "$table" = "0" ] && table="100"
-                if setconfig table "$table"; then
-                    common_success
+                if echo "$table" | grep -Eq '^[0-9]+$' && [ "$table" -ge 1 ] && [ "$table" -le 252 ]; then
+                    if setconfig table "$table"; then
+                        common_success
+                    else
+                        common_failed
+                    fi
                 else
-                    common_failed
+                    errornum
                 fi
             fi
             ;;
@@ -614,13 +618,16 @@ set_firewall_area() {
                 "$SET_BYPASS_DESC_1" \
                 "$SET_BYPASS_DESC_2"
             read -r -p "$SET_INPUT_BYPASS_IPV4> " bypass_host
-            [ -n "$bypass_host" ] && {
+            if echo "$bypass_host" | grep -Eq '^([1-9]|[1-9][0-9]|1[0-9]{2}|2[01][0-9]|22[0-3])(\.([0-9]|[0-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])){2}\.([1-9]|[0-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-4])$'; then
                 firewall_area=$num
                 setconfig firewall_area "$firewall_area"
                 setconfig bypass_host "$bypass_host"
-                redir_mod=$SET_BYPASS_TCP
-                setconfig redir_mod $redir_mod
-            }
+                redir_mod='TCP旁路转发'
+                setconfig redir_mod "$redir_mod"
+            elif [ -n "$bypass_host" ]; then
+                bypass_host=""
+                msg_alert "\033[31m$ADV_HOST_INVALID\033[0m"
+            fi
             ;;
         *)
             errornum
@@ -666,7 +673,7 @@ set_firewall_vm() {
     esac
 	common_success
 	setconfig vm_redir "$vm_redir"
-	setconfig vm_ipv4 "'$vm_ipv4'"
+	setconfig_quote vm_ipv4 "$vm_ipv4"
 }
 
 # ipv6设置

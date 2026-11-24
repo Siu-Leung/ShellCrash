@@ -118,8 +118,10 @@ extract_base_jsons() { #提取配置文件以获得outbounds.json,providers.json
 }
 
 generate_basic_jsons() {
-	#适配1.14+版本
-	if [ "$(printf '%s' "$core_v" | cut -d. -f2)" -lt 14 ];then
+	#适配1.14+版本（安全提取数字次版本号，避免空值或带连字符版本报错）
+	_sb_minor=$(printf '%s' "$core_v" | sed -n 's/^[^0-9]*[0-9][0-9]*\.\([0-9][0-9]*\).*/\1/p')
+	[ -z "$_sb_minor" ] && _sb_minor=14
+	if [ "$_sb_minor" -lt 14 ];then
 		preferred='"ip_accept_any": true,'
 		detour_direct='"download_detour": "DIRECT"'
 	else
@@ -246,8 +248,13 @@ gen_dns() {
             [ -n "$custom_direct_regex" ] && custom_direct_regex_rule="{ \"domain_regex\": [$custom_direct_regex], \"server\": \"dns_direct\" },"
         fi
     }
-    #防泄露设置
-    [ "$dns_protect" = "OFF" ] && sed -i 's/"server": "dns_proxy"/"server": "dns_direct"/g' "$TMPDIR"/jsons/route.json
+    #防泄露设置（修正：同时作用于 dns.json 的 final，而非仅无效替换 route.json）
+    if [ "$dns_protect" = "OFF" ]; then
+        _sb_dns_final="dns_direct"
+        sed -i 's/"server": "dns_proxy"/"server": "dns_direct"/g' "$TMPDIR"/jsons/route.json
+    else
+        _sb_dns_final="dns_proxy"
+    fi
     #生成add_rule_set.json
     [ "$dns_mod" = "mix" ] || [ "$dns_mod" = "route" ] && ! grep -Eq '"tag" *:[[:space:]]*"cn"' "$CRASHDIR"/jsons/*.json && ! grep -Eq '"tag"[[:space:]]*:[[:space:]]*\[[^]]*"cn"' "$CRASHDIR"/jsons/*.json && {
         [ "$crashcore" = "singboxr" ] && srs_path='"path": "./ruleset/cn.srs",'
@@ -315,7 +322,7 @@ EOF
       $direct_dns
       $proxy_dns
     ],
-    "final": "dns_proxy",
+    "final": "$_sb_dns_final",
     "strategy": "$strategy",
     $client_subnet
     "reverse_mapping": true
@@ -365,9 +372,9 @@ gen_inbounds() { #生成inbounds.json
         _sb_listen="::"
     fi
     [ -n "$authentication" ] && {
-        username=$(echo $authentication | awk -F ':' '{print $1}') #混合端口账号密码
-        password=$(echo $authentication | awk -F ':' '{print $2}')
-        userpass='"users": [{ "username": "'$username'", "password": "'$password'" }], '
+        username=$(printf '%s' "$authentication" | sed 's/:.*//' | sed 's/\\/\\\\/g; s/"/\\"/g') #混合端口账号密码
+        password=$(printf '%s' "$authentication" | sed 's/^[^:]*://' | sed 's/\\/\\\\/g; s/"/\\"/g')
+        userpass='"users": [{ "username": "'"$username"'", "password": "'"$password"'" }], '
     }
     cat >"$TMPDIR"/jsons/inbounds.json <<EOF
 {
@@ -382,19 +389,19 @@ gen_inbounds() { #生成inbounds.json
     {
       "type": "direct",
       "tag": "dns-in",
-      "listen": "::",
+      "listen": "$_sb_listen",
       "listen_port": $dns_port
     },
     {
       "type": "redirect",
       "tag": "redirect-in",
-      "listen": "::",
+      "listen": "$_sb_listen",
       "listen_port": $redir_port
     },
     {
       "type": "tproxy",
       "tag": "tproxy-in",
-      "listen": "::",
+      "listen": "$_sb_listen",
       "listen_port": $tproxy_port
     }
   ]
@@ -407,7 +414,9 @@ EOF
     }
     if [ "$redir_mod" = "Mix" ] || [ "$redir_mod" = "Tun" ]; then
         [ "$ipv6_redir" = 'ON' ] && [ -n "$(ip -6 rule show)" ] && ipv6_address='"fd00:face:b00c::1/126",'
-		[ "$(printf '%s' "$core_v" | cut -d. -f2)" -le 14 ] && stack='"stack": "system",'
+		_sb_minor_tun=$(printf '%s' "$core_v" | sed -n 's/^[^0-9]*[0-9][0-9]*\.\([0-9][0-9]*\).*/\1/p')
+		[ -z "$_sb_minor_tun" ] && _sb_minor_tun=14
+		[ "$_sb_minor_tun" -le 14 ] && stack='"stack": "system",'
         cat >>"$TMPDIR"/jsons/tun.json <<EOF
 {
   "inbounds": [
@@ -429,14 +438,16 @@ EOF
 }
 
 add_outbounds() { #生成add_outbounds.json
+    add_direct=''; add_reject=''; add_global=''
     grep -qE '"tag": "DIRECT"' "$TMPDIR"/jsons/outbounds.json || add_direct='{ "tag": "DIRECT", "type": "direct" }'
     grep -qE '"tag": "REJECT"' "$TMPDIR"/jsons/outbounds.json || add_reject='{ "tag": "REJECT", "type": "block" }'
     grep -qE '"tag": "GLOBAL"' "$TMPDIR"/jsons/outbounds.json || {
         auto_proxies=$(grep -E '"type": "(selector|urltest)"' -A 1 "$TMPDIR"/jsons/outbounds.json | grep '"tag":' | sed 's/^[[:space:]]*"tag": //;$ s/,$//')
         [ -n "$auto_proxies" ] && add_global='{ "tag": "GLOBAL", "type": "selector", "outbounds": ['"$auto_proxies"', "DIRECT"]}'
     }
-    [ -n "$add_direct" -a -n "$add_reject" ] && add_direct="${add_direct},"
-    [ -n "$add_reject" -a -n "$add_global" ] && add_reject="${add_reject},"
+    # 修正：当 add_reject 为空但 add_direct 与 add_global 同时存在时也要补逗号
+    [ -n "$add_direct" ] && [ -n "$add_reject$add_global" ] && add_direct="${add_direct},"
+    [ -n "$add_reject" ] && [ -n "$add_global" ] && add_reject="${add_reject},"
     [ -n "$add_direct$add_reject$add_global" ] && cat >"$TMPDIR"/jsons/add_outbounds.json <<EOF
 {
   "outbounds": [
@@ -456,6 +467,7 @@ gen_experimental() { #生成experimental.json
     else
         _sb_ext_ctrl="0.0.0.0:$db_port"
     fi
+    _sb_esc_secret=$(printf '%s' "$secret" | sed 's/\\/\\\\/g; s/"/\\"/g')
     cat >"$TMPDIR"/jsons/experimental.json <<EOF
 {
   "experimental": {
@@ -463,7 +475,7 @@ gen_experimental() { #生成experimental.json
       "external_controller": "$_sb_ext_ctrl",
       "external_ui": "ui",
       "external_ui_download_url": "$external_ui_url",
-      "secret": "$secret",
+      "secret": "$_sb_esc_secret",
       "default_mode": "Rule"
     }$urltest_unified_delay
   }
@@ -474,21 +486,22 @@ EOF
 generate_custom_rules_json() { #生成自定义规则文件
     [ -n "$(grep -Ev ^# "$CRASHDIR"/yamls/rules.yaml 2>/dev/null)" ] && {
         cat "$CRASHDIR"/yamls/rules.yaml |
-            sed '/#.*/d' |
+            sed '/^[[:space:]]*#/d; s/#.*//g' |
             sed 's/,no-resolve//g' |
             grep -oE '\-.*,.*,.*' |
             sed 's/- DOMAIN-SUFFIX,/{ "domain_suffix": [ "/g' |
             sed 's/- DOMAIN-KEYWORD,/{ "domain_keyword": [ "/g' |
             sed 's/- IP-CIDR,/{ "ip_cidr": [ "/g' |
-            sed 's/- SRC-IP-CIDR,/{ "._ip_cidr": [ "/g' |
-            sed 's/- DST-PORT,/{ "port": [ "/g' |
-            sed 's/- SRC-PORT,/{ "._port": [ "/g' |
+            sed 's/- SRC-IP-CIDR,/{ "source_ip_cidr": [ "/g' |
+            sed 's/- DST-PORT,/{ "port": [ /g' |
+            sed 's/- SRC-PORT,/{ "source_port": [ /g' |
             sed 's/- GEOIP,/{ "geoip": [ "/g' |
             sed 's/- GEOSITE,/{ "geosite": [ "/g' |
             sed 's/- IP-CIDR6,/{ "ip_cidr": [ "/g' |
             sed 's/- DOMAIN,/{ "domain": [ "/g' |
             sed 's/- PROCESS-NAME,/{ "process_name": [ "/g' |
-            sed 's/,/" ], "outbound": "/g' |
+            sed '/"port":\|"source_port":/! s/,/" ], "outbound": "/g' |
+            sed '/"port":\|"source_port":/ s/,/ ], "outbound": "/g' |
             sed 's/$/" },/g' |
             sed '1i\{ "route": { "rules": [ ' |
             sed '$s/,$/ ] } }/' >"$TMPDIR"/jsons/cust_add_rules.json
@@ -501,11 +514,11 @@ normalize_and_finalize_jsons() { #修饰文件
     sed -i '/"process_name": \[/,/],$/d' "$TMPDIR"/jsons/route.json
     sed -i '/"process_name": "[^"]*",/d' "$TMPDIR"/jsons/route.json
 	sed -i 's/"auto_detect_interface": true/"auto_detect_interface": false/g' "$TMPDIR"/jsons/route.json
-    #跳过本地tls证书验证
-    if [ "$skip_cert" != "OFF" ]; then
-        sed -i 's/"insecure": false/"insecure": true/' "$TMPDIR"/jsons/outbounds.json "$TMPDIR"/jsons/providers.json 2>/dev/null
+    #跳过本地tls证书验证（安全加固：fail-closed，仅显式 skip_cert=ON 时跳过）
+    if [ "$skip_cert" = "ON" ]; then
+        sed -i 's/"insecure": false/"insecure": true/g' "$TMPDIR"/jsons/outbounds.json "$TMPDIR"/jsons/providers.json 2>/dev/null
     else
-        sed -i 's/"insecure": true/"insecure": false/' "$TMPDIR"/jsons/outbounds.json "$TMPDIR"/jsons/providers.json 2>/dev/null
+        sed -i 's/"insecure": true/"insecure": false/g' "$TMPDIR"/jsons/outbounds.json "$TMPDIR"/jsons/providers.json 2>/dev/null
     fi
     #判断可用并修饰outbounds&providers&route.json结尾
     for file in outbounds providers route; do

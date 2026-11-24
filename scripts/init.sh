@@ -44,14 +44,14 @@ if [ -f /etc/rc.common -a "$(cat /proc/1/comm 2>/dev/null)" = "procd" ]; then
     #设为init.d方式启动
     cp -f "$CRASHDIR"/starts/shellcrash.procd /etc/init.d/shellcrash
     chmod 755 /etc/init.d/shellcrash
-elif [ -n "$sysdir" -a "$USER" = "root" -a "$(cat /proc/1/comm 2>/dev/null)" = "systemd" ]; then
+elif [ -n "$sysdir" ] && { [ "$(id -u 2>/dev/null)" = "0" ] || [ "$USER" = "root" ]; } && [ "$(cat /proc/1/comm 2>/dev/null)" = "systemd" ]; then
     #创建shellcrash用户
     userdel shellcrash 2>/dev/null
-    sed -i '/0:7890/d' /etc/passwd
-    sed -i '/x:7890/d' /etc/group
+    sed -i '/^shellcrash:/d' /etc/passwd
+    sed -i '/^shellcrash:/d' /etc/group
     if useradd -h >/dev/null 2>&1; then
         useradd shellcrash -u 7890 2>/dev/null
-        sed -Ei s/7890:7890/0:7890/g /etc/passwd
+        sed -Ei 's/^(shellcrash:[^:]*:)7890:7890/\10:7890/' /etc/passwd
     else
         echo "shellcrash:x:0:7890::/home/shellcrash:/bin/sh" >>/etc/passwd
     fi
@@ -73,15 +73,17 @@ fi
 rm -rf "$CRASHDIR"/starts/shellcrash.service
 rm -rf "$CRASHDIR"/starts/shellcrash.openrc
 
-#修饰文件及版本号
-command -v bash >/dev/null 2>&1 && shtype=bash
+#修饰文件及版本号（安全加固：缺省回退 sh，且仅替换第 1 行 shebang，不破坏脚本体内的 /bin/sh 引用）
+shtype=sh
+[ -x /bin/bash ] && shtype=bash
 [ -x /bin/ash ] && shtype=ash
 #批量授权
 for file in start.sh starts/bfstart.sh starts/afstart.sh starts/fw_stop.sh starts/fw_ipv6_watch.sh menu.sh menus/task_cmd.sh menus/bot_tg.sh; do
-    sed -i "s|/bin/sh|/bin/$shtype|" "$CRASHDIR/$file" 2>/dev/null
+    sed -i "1s|^#!/bin/sh\$|#!/bin/$shtype|" "$CRASHDIR/$file" 2>/dev/null
     chmod +x "$CRASHDIR/$file" 2>/dev/null
 done
-setconfig versionsh_l $version
+[ -z "$version" ] && [ -s "$CRASHDIR"/version ] && version=$(cat "$CRASHDIR"/version)
+[ -n "$version" ] && setconfig versionsh_l "$version"
 #生成用于执行启动服务的变量文件
 DIRECTORIES_FILE="$CRASHDIR"/configs/directories.env
 COMMAND_FILE="$CRASHDIR"/configs/command.env
@@ -201,7 +203,7 @@ for file in config.yaml.bak user.yaml proxies.yaml proxy-groups.yaml rules.yaml 
     mv -f "$CRASHDIR"/"$file" "$CRASHDIR"/yamls/"$file" 2>/dev/null
 done
 [ ! -L "$CRASHDIR"/config.yaml ] && mv -f "$CRASHDIR"/config.yaml "$CRASHDIR"/yamls/config.yaml 2>/dev/null
-for file in fake_ip_filter mac web_save servers_chs.list servers_en.list fake_ip_filter.list singbox_providers.list clash_providers.list; do
+for file in fake_ip_filter mac web_save servers_chs.list servers_en.list fake_ip_filter.list dns_direct_domains.list singbox_providers.list clash_providers.list; do
     mv -f "$CRASHDIR"/"$file" "$CRASHDIR"/configs/"$file" 2>/dev/null
 done
 #迁移任务状态文件到新目录

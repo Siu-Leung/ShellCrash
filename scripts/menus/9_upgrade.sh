@@ -114,15 +114,20 @@ checkupdate() {
     line_break
     separator_line "="
     content_line "\033[32m$UPG_CHECKING\033[0m"
-    get_bin "$TMPDIR"/version_new version echooff
-    [ "$?" = "0" ] && {
-        version_new=$(cat "$TMPDIR"/version_new)
-        get_bin "$TMPDIR"/version_new bin/version echooff
-        content_line "\033[32m$UPG_CHECK_OK\033[0m"
-        separator_line "="
-    }
-    if [ "$?" = "0" ]; then
-        . "$TMPDIR"/version_new 2>/dev/null
+    if get_bin "$TMPDIR"/version_new version echooff; then
+        version_new=$(head -n 1 "$TMPDIR"/version_new | tr -d '\r\n ')
+        if get_bin "$TMPDIR"/version_new bin/version echooff; then
+            content_line "\033[32m$UPG_CHECK_OK\033[0m"
+            separator_line "="
+            . "$TMPDIR"/version_new 2>/dev/null
+        else
+            content_line "\033[31m$UPG_CHECK_FAIL\033[0m"
+            separator_line "="
+            setserver
+            if [ "$checkupdate" != false ]; then
+                checkupdate
+            fi
+        fi
     else
         content_line "\033[31m$UPG_CHECK_FAIL\033[0m"
         separator_line "="
@@ -211,7 +216,10 @@ setcpucore() {
 
     separator_line "="
     read -r -p "$COMMON_INPUT> " num
-    [ -n "$num" ] && setcpucore=$(echo "$cpucore_list" | awk '{print $"'"$num"'"}')
+    setcpucore=""
+    if echo "$num" | grep -Eq '^[1-9][0-9]*$'; then
+        setcpucore=$(echo "$cpucore_list" | awk -v n="$num" '{if(n>=1 && n<=NF) print $n}')
+    fi
     if [ -z "$setcpucore" ]; then
         cpucore=""
         msg_alert "\033[31m$UPG_CPUCORE_ERR\033[0m"
@@ -599,20 +607,21 @@ setcore() {
 # 数据库
 # 下载Geo文件
 getgeo() {
+    geofile=""
     # 生成链接
     line_break
     separator_line "="
     content_line "$UPG_GEO_GETTING"
     get_bin "$TMPDIR"/"${geoname}" bin/geodata/"$geotype"
-    if [ "$?" = "1" ]; then
+    if [ "$?" != "0" ]; then
         content_line "\033[31m$UPG_DOWNLOAD_FAIL\033[0m"
         error_down
     else
-        echo "$geoname" | grep -Eq '.mrs|.srs|.tar.gz' && {
+        echo "$geoname" | grep -Eq '\.(mrs|srs|tar\.gz)$' && {
             geofile='ruleset/'
             [ ! -d "$BINDIR"/ruleset ] && mkdir -p "$BINDIR"/ruleset
         }
-        if echo "$geoname" | grep -Eq '.tar.gz'; then
+        if echo "$geoname" | grep -Eq '\.tar\.gz$'; then
             tar -zxf "$TMPDIR"/"${geoname}" ${tar_para} -C "$BINDIR"/"${geofile}" >/dev/null
             if [ $? -ne 0 ]; then
                 content_line "$UPG_EXTRACT_FAIL"
@@ -620,7 +629,7 @@ getgeo() {
                 sleep 1
                 line_break
                 rm -rf "$TMPDIR"/${geoname}
-                exit 1
+                return 1
             fi
             rm -rf "$TMPDIR"/${geoname}
         else
@@ -634,15 +643,22 @@ getgeo() {
 }
 
 getcustgeo() {
+    geofile=""
+    case "$geoname" in
+    "" | *..* | */*)
+        msg_alert "\033[31m$UPG_DOWNLOAD_FAIL\033[0m"
+        return 1
+        ;;
+    esac
     line_break
     separator_line "="
     content_line "$UPG_GEO_LINKING"
     webget "$TMPDIR"/"$geoname" "$custgeolink"
-    if [ "$?" = "1" ]; then
+    if [ "$?" != "0" ]; then
         content_line "\033[31m$UPG_DOWNLOAD_FAIL\033[0m"
         error_down
     else
-        echo "$geoname" | grep -Eq '.mrs|.srs' && {
+        echo "$geoname" | grep -Eq '\.(mrs|srs)$' && {
             geofile='ruleset/'
             [ ! -d "$BINDIR"/ruleset ] && mkdir -p "$BINDIR"/ruleset
         }
@@ -763,8 +779,12 @@ setcustgeo() {
         9)
             line_break
             read -r -p "$UPG_GEO_LINK_HINT" link
-            [ -n "$link" ] && custgeolink="$link"
-            getgeo
+            if [ -n "$link" ]; then
+                custgeolink="$link"
+                geotype=$(basename "${link%%\?*}")
+                geoname="$geotype"
+                getcustgeo
+            fi
             ;;
         *)
             errornum
@@ -875,7 +895,7 @@ getdb() {
     separator_line "="
     content_line "$UPG_DB_GETTING"
     get_bin "$TMPDIR"/clashdb.tar.gz bin/dashboard/${db_type}.tar.gz
-    if [ "$?" = "1" ]; then
+    if [ "$?" != "0" ]; then
         content_line "\033[31m$UPG_DOWNLOAD_FAIL\033[0m"
         error_down
         return 1
@@ -888,8 +908,8 @@ getdb() {
             separator_line "="
             line_break
             sleep 1
-            rm -rf "$TMPDIR"/clashfm.tar.gz
-            exit 1
+            rm -rf "$TMPDIR"/clashdb.tar.gz
+            return 1
         fi
 
         #修改默认host和端口
@@ -902,7 +922,7 @@ getdb() {
             sed -i "s/127.0.0.1:9090/${host}:${db_port}/g" "$dbdir"/*.html
         fi
         #写入配置文件
-        setconfig hostdir "'$hostdir'"
+        setconfig_quote hostdir "$hostdir"
         content_line "\033[32m$UPG_DB_OK\033[0m"
         content_line "\033[36m$UPG_DB_REFRESH_HINT\033[0m"
         separator_line "="
@@ -940,7 +960,7 @@ dbdir() {
             ;;
         1)
             dbdir="$CRASHDIR"/ui
-            hostdir=": $db_port/ui"
+            hostdir=":$db_port/ui"
             getdb
             ;;
         2)
@@ -984,28 +1004,32 @@ setdb() {
             ;;
         1)
             db_type=zashboard
-            setconfig external_ui_url "https://raw.githubusercontent.com/Siu-Leung/ShellCrash/update/bin/dashboard/zashboard.tar.gz"
+            setconfig external_ui_url "https://raw.githubusercontent.com/Siu-Leung/ShellCrash/update/bin/dashboard/${db_type}.tar.gz"
             dbdir
             ;;
         2)
             db_type=meta_xd
-            setconfig external_ui_url "https://raw.githubusercontent.com/Siu-Leung/ShellCrash/update/bin/dashboard/meta_xd.tar.gz"
+            setconfig external_ui_url "https://raw.githubusercontent.com/Siu-Leung/ShellCrash/update/bin/dashboard/${db_type}.tar.gz"
             dbdir
             ;;
         3)
             db_type=meta_yacd
+            setconfig external_ui_url "https://raw.githubusercontent.com/Siu-Leung/ShellCrash/update/bin/dashboard/${db_type}.tar.gz"
             dbdir
             ;;
         4)
             db_type=clashdb
+            setconfig external_ui_url "https://raw.githubusercontent.com/Siu-Leung/ShellCrash/update/bin/dashboard/${db_type}.tar.gz"
             dbdir
             ;;
         5)
             db_type=meta_db
+            setconfig external_ui_url "https://raw.githubusercontent.com/Siu-Leung/ShellCrash/update/bin/dashboard/${db_type}.tar.gz"
             dbdir
             ;;
         6)
             db_type=yacd
+            setconfig external_ui_url "https://raw.githubusercontent.com/Siu-Leung/ShellCrash/update/bin/dashboard/${db_type}.tar.gz"
             dbdir
             ;;
         9)
@@ -1044,7 +1068,7 @@ getcrt() {
     separator_line "="
     content_line "$UPG_DB_GETTING"
     get_bin "$TMPDIR"/ca-certificates.crt bin/fix/ca-certificates.crt echooff
-    if [ "$?" = "1" ]; then
+    if [ "$?" != "0" ]; then
         content_line "\033[31m$UPG_DOWNLOAD_FAIL\033[0m"
         error_down
     else
@@ -1053,7 +1077,7 @@ getcrt() {
         mkdir -p "$openssldir"/certs
         mv -f "$TMPDIR"/ca-certificates.crt "$crtdir"
         webget /dev/null https://baidu.com echooff rediron skipceroff
-        if [ "$?" = "1" ]; then
+        if [ "$?" != "0" ]; then
             export CURL_CA_BUNDLE="$crtdir"
             echo "export CURL_CA_BUNDLE=$crtdir" >>/etc/profile
         fi
@@ -1117,7 +1141,7 @@ setcrt() {
 
 # 写入配置文件
 saveserver() {
-    setconfig update_url "'$update_url'"
+    setconfig_quote update_url "$update_url"
     setconfig url_id "$url_id"
     setconfig release_type "$release_type"
     version_new=''
@@ -1134,7 +1158,7 @@ setserver() {
         [ "$release_type" = stable ] && release_name=$UPG_SOURCE_STABLE_TEXT
         [ "$release_type" = master ] && release_name=$UPG_SOURCE_MASTER_TEXT
         [ "$release_type" = dev ] && release_name=$UPG_SOURCE_DEV_TEXT
-        [ -n "$url_id" ] && url_name=$(grep "$url_id" "$LISTFILE" 2>/dev/null | awk '{print $2}') || url_name="$update_url"
+        [ -n "$url_id" ] && url_name=$(awk -v id="$url_id" '$1 == id {print $2; exit}' "$LISTFILE" 2>/dev/null) || url_name="$update_url"
 
         comp_box "\033[30;47m$UPG_SOURCE_TITLE\033[0m" \
             "" \
@@ -1162,13 +1186,13 @@ setserver() {
             checkupdate=false
             break
             ;;
-        [1-99])
-            url_id_new=$(grep -E "^1|$release_name" "$LISTFILE" | sed -n "$num"p | awk '{print $1}')
+        [1-9] | [1-9][0-9])
+            url_id_new=$(grep -E "^1|^2" "$LISTFILE" | sed -n "${num}p" | awk '{print $1}')
             if [ -z "$url_id_new" ]; then
                 errornum
                 continue
             elif [ "$url_id_new" -ge 200 ]; then
-                update_url=$(grep -E "^1|$release_name" "$LISTFILE" | sed -n "$num"p | awk '{print $3}')
+                update_url=$(grep -E "^1|^2" "$LISTFILE" | sed -n "${num}p" | awk '{print $3}')
                 url_id=''
                 saveserver
                 break
@@ -1238,7 +1262,7 @@ setserver() {
                 . "$CRASHDIR"/libs/web_get_lite.sh
                 # 去原作者化：版本列表改从本 fork 仓库 API 获取
                 list=$(web_get_lite https://api.github.com/repos/Siu-Leung/ShellCrash/tags | grep -E '"name": "[0-9]' | cut -d '"' -f4)
-                if [ "$?" = "0" ]; then
+                if [ "$?" = "0" ] && [ -n "$list" ]; then
                     content_line "\033[32m$UPG_SOURCE_VER_OK\033[0m"
                     separator_line "="
 
@@ -1251,8 +1275,8 @@ setserver() {
                     read -r -p "$COMMON_INPUT> " num
                     if [ -z "$num" ] || [ "$num" = 0 ]; then
                         continue
-                    elif [ "$num" -le $(echo "$list" | awk 'END{print NR}') ]; then
-                        release_type=$(echo "$list" | sed -n "$num"p)
+                    elif echo "$num" | grep -Eq '^[1-9][0-9]*$' && [ "$num" -le "$(echo "$list" | awk 'END{print NR}')" ]; then
+                        release_type=$(echo "$list" | sed -n "${num}p")
                         update_url=''
                         saveserver
                     else

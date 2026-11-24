@@ -91,7 +91,7 @@ crash -h     # Show CLI help
 Trigger these workflows under GitHub **Actions** to replace all binaries with your own clean builds:
 
 - `core_easy_update`: Pass `meta`, `singbox`, or `singboxr` to compile from official source and push to `update`.
-- `bin_update`: Refreshes Dashboards, GeoData/ruleset archives, CA certificates, and syncs `ShellCrash.tar.gz` from `dev`.
+- `bin_update`: Refreshes Dashboards, GeoData, all `.mrs` / `.srs` rulesets (published to `bin/ruleset/` on `update`), CA certificates, and syncs `ShellCrash.tar.gz` from `dev`.
 
 ## Development & Regression Testing
 
@@ -102,6 +102,8 @@ sh sync_pkg.sh
 for t in tests/test_*.sh; do sh "$t"; done
 ```
 
-## License
+## Attribution & License
+
+This hardened fork is derived from the open-source ShellCrash project originally created by **Juewuy**. Original author copyright headers and attribution are preserved; only dependencies on upstream-hosted download mirrors, Docker images, and third-party relay services have been removed.
 
 Licensed under the [GNU General Public License v3.0](LICENSE.txt).

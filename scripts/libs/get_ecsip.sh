@@ -1,13 +1,14 @@
 
 get_ecs_address() {
+    ip=""
     for f in /tmp/resolv.conf.auto /tmp/resolv.conf /tmp/resolv.conf.d/resolv.conf.auto; do
         [ -f "$f" ] || continue
-        ip=$(grep -A1 "^# Interface wan$" "$f" | grep nameserver | awk '{printf "%s ", $2}')
+        ip=$(grep -A3 "^# Interface wan$" "$f" | awk '/^[[:space:]]*nameserver[[:space:]]+/ {print $2}' | grep -E '^([0-9]{1,3}\.){3}[0-9]{1,3}$' | head -n 1)
         [ -n "$ip" ] && return
     done
     . "$CRASHDIR"/libs/web_get_lite.sh
     #轮询公网IP，提取并校验为合法IPv4才采用，否则继续尝试下一个
-    for web in http://ddns.oray.com/checkip http://members.3322.org/dyndns/getip http://ipinfo.io/ip; do
+    for web in https://ipinfo.io/ip http://ddns.oray.com/checkip http://members.3322.org/dyndns/getip; do
         ip=$(web_get_lite "$web" 0 | grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' | tail -1)
         [ -n "$ip" ] && return
     done

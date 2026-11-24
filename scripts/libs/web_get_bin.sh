@@ -16,12 +16,20 @@ get_bin() { #专用于项目内部文件的下载
         echo "$2" | grep -q '^bin/' && rt=update #/bin文件改为在update分支下载
         echo "$2" | grep -qE '^public/|^rules/' && rt=dev #/public和/rules文件改为在dev分支下载    
         if [ "$url_id" = 101 -o "$url_id" = 104 ]; then
-            bin_url="$(grep "$url_id" "$CRASHDIR"/configs/servers_chs.list | awk '{print $3}')@$rt/$2" #jsdelivr特殊处理
+            bin_url="$(cat "$CRASHDIR"/configs/servers_chs.list 2>/dev/null | awk -v id="$url_id" 'BEGIN{u="https://cdn.jsdelivr.net/gh/Siu-Leung/ShellCrash"} $1 == id {u=$3; exit} END{print u}')@$rt/$2" #jsdelivr特殊处理
         else
-            bin_url="$(grep "$url_id" "$CRASHDIR"/configs/servers_chs.list | awk '{print $3}')/$rt/$2"
+            bin_url="$(cat "$CRASHDIR"/configs/servers_chs.list 2>/dev/null | awk -v id="$url_id" 'BEGIN{u="https://cdn.jsdelivr.net/gh/Siu-Leung/ShellCrash"} $1 == id {u=$3; exit} END{print u}')/$rt/$2"
         fi
     else
-        bin_url="$update_url/$2"
+        # 安全加固：默认安装仅写入 update_url(@dev) 而未设 url_id；下载 bin/* 时自动切到 update 分支，
+        # 下载 public/* 或 rules/* 时切到 dev 分支，确保首次安装即可拉到自主编译内核与最新资源
+        _base_url="$update_url"
+        if echo "$2" | grep -q '^bin/'; then
+            _base_url=$(printf '%s\n' "$_base_url" | sed -e 's#Siu-Leung/ShellCrash@[^/]*#Siu-Leung/ShellCrash@update#' -e 's#Siu-Leung/ShellCrash/[^/]*#Siu-Leung/ShellCrash/update#')
+        elif echo "$2" | grep -qE '^public/|^rules/'; then
+            _base_url=$(printf '%s\n' "$_base_url" | sed -e 's#Siu-Leung/ShellCrash@[^/]*#Siu-Leung/ShellCrash@dev#' -e 's#Siu-Leung/ShellCrash/[^/]*#Siu-Leung/ShellCrash/dev#')
+        fi
+        bin_url="$_base_url/$2"
     fi
     webget "$1" "$bin_url" "$3" "$4" "$5" "$6"
 }

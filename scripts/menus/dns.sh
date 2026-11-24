@@ -67,7 +67,7 @@ fake_ip_range() {
             echo "$_ip" | grep -qE '^([0-9]{1,3}\.){3}[0-9]{1,3}$' || { msg_alert "\033[31m非法 IPv4\033[0m"; continue; }
             [ "$_bits" -ge 8 ] 2>/dev/null && [ "$_bits" -le 30 ] || { msg_alert "\033[31m掩码需在 8-30 之间\033[0m"; continue; }
             fakeip4="$_new"
-            setconfig fakeip4 "'$fakeip4'"
+            setconfig_quote fakeip4 "$fakeip4"
             msg_alert "\033[32mfakeip4 已设为 $fakeip4，请重启服务\033[0m"
             ;;
         *) errornum ;;
@@ -166,7 +166,7 @@ set_dns_mod() {
                     break
                     ;;
                 *)
-                    if [ "$num" -ge 1 ] && [ "$num" -lt 65535 ]; then
+                    if echo "$num" | grep -Eq '^[0-9]+$' && [ "$num" -ge 1 ] && [ "$num" -le 65535 ]; then
                         if netstat -ntul 2>/dev/null | grep -q ":$num " || ss -ntul 2>/dev/null | grep -q ":$num "; then
                             dns_redir_port="$num"
                             setconfig dns_redir_port "$dns_redir_port"
@@ -228,7 +228,7 @@ fake_ip_filter() {
             break
             ;;
         *)
-            if [ "$input" -ge 1 ] 2>/dev/null; then
+            if echo "$input" | grep -Eq '^[1-9][0-9]*$'; then
                 if sed -i "${input}d" "$CRASHDIR/configs/fake_ip_filter"; then
                     msg_alert "\033[32m$DNS_REMOVE_OK\033[0m"
                 else
@@ -299,13 +299,17 @@ dns_direct_domains() {
             esac
             ;;
         r)
-            if [ -s "$CRASHDIR/public/dns_direct_domains.list" ]; then
+            _preset_file=""
+            for _pf in "$CRASHDIR/configs/dns_direct_domains.list" "$CRASHDIR/dns_direct_domains.list" "$CRASHDIR/public/dns_direct_domains.list"; do
+                [ -s "$_pf" ] && _preset_file="$_pf" && break
+            done
+            if [ -n "$_preset_file" ]; then
                 # 安全加固：预设合并时去重，不重复写入已存在的域名
                 _added=0
                 while IFS= read -r _pd || [ -n "$_pd" ]; do
                     case "$_pd" in '' | \#*) continue ;; esac
                     dns_cfg_append "$CRASHDIR/configs/dns_direct_domains" "$_pd" domain >/dev/null 2>&1 && _added=$((_added + 1))
-                done <"$CRASHDIR/public/dns_direct_domains.list"
+                done <"$_preset_file"
                 msg_alert "\033[32m$DNS_DIRECT_LOAD_OK (+$_added)\033[0m"
             else
                 msg_alert "\033[31m预设文件不存在！\033[0m"
@@ -327,13 +331,13 @@ dns_direct_domains() {
                 elif command -v dig >/dev/null 2>&1; then
                     result=$(dig +short +time=2 "@127.0.0.1" -p "$dns_port" "$test_domain" 2>&1 || echo "解析失败")
                 else
-                    # 通过 mihomo/clash external-controller 的 /dns/query 接口查询
-                    [ -z "$secret" ] && secret=$(grep -E '^secret=' "$CRASHDIR/configs/ShellCrash.cfg" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d "'\"")
-                    _dns_json=$(printf '{"host":"%s","type":"A"}' "$test_domain")
+                    # 通过 mihomo/clash external-controller 的 /dns/query 接口查询（绕过代理并转义 JSON）
+                    _td_esc=$(printf '%s' "$test_domain" | sed 's/\\/\\\\/g; s/"/\\"/g' | tr -d '\r\n')
+                    _dns_json=$(printf '{"host":"%s","type":"A"}' "$_td_esc")
                     if command -v curl >/dev/null 2>&1; then
-                        result=$(curl -s --connect-timeout 3 -H "Authorization: Bearer $secret" -H 'Content-Type: application/json' -X POST "http://127.0.0.1:$db_port/dns/query" -d "$_dns_json" 2>&1)
+                        result=$(curl -s --noproxy '*' --connect-timeout 3 -H "Authorization: Bearer $secret" -H 'Content-Type: application/json' -X POST "http://127.0.0.1:$db_port/dns/query" -d "$_dns_json" 2>&1)
                     elif command -v wget >/dev/null 2>&1; then
-                        result=$(wget -q --timeout=3 --header="Authorization: Bearer $secret" --header='Content-Type: application/json' --method=POST --body-data="$_dns_json" -O - "http://127.0.0.1:$db_port/dns/query" 2>&1)
+                        result=$(http_proxy='' https_proxy='' HTTP_PROXY='' HTTPS_PROXY='' wget -q --no-proxy --timeout=3 --header="Authorization: Bearer $secret" --header='Content-Type: application/json' --method=POST --body-data="$_dns_json" -O - "http://127.0.0.1:$db_port/dns/query" 2>&1)
                     else
                         result="无可用 DNS 查询工具（nslookup/dig/curl/wget 均缺失）"
                     fi
@@ -353,7 +357,7 @@ dns_direct_domains() {
             esac
             ;;
         *)
-            if [ "$input" -ge 1 ] 2>/dev/null; then
+            if echo "$input" | grep -Eq '^[1-9][0-9]*$'; then
                 if sed -i "${input}d" "$CRASHDIR/configs/dns_direct_domains"; then
                     msg_alert "\033[32m$DNS_REMOVE_OK\033[0m"
                 else
@@ -412,13 +416,13 @@ set_dns_adv() {
                 ;;
             r)
                 dns_nameserver="127.0.0.1"
-                setconfig dns_nameserver "'$dns_nameserver'"
+                setconfig_quote dns_nameserver "$dns_nameserver"
                 common_success
                 ;;
             *)
                 dns_nameserver=$(echo "$res" | sed 's#|#,\ #g')
                 if [ -n "$dns_nameserver" ]; then
-                    setconfig dns_nameserver "'$dns_nameserver'"
+                    setconfig_quote dns_nameserver "$dns_nameserver"
                     common_success
                 else
                     common_failed
@@ -438,13 +442,13 @@ set_dns_adv() {
                 ;;
             r)
                 dns_fallback="1.1.1.1, 8.8.8.8"
-                setconfig dns_fallback "'$dns_fallback'"
+                setconfig_quote dns_fallback "$dns_fallback"
                 common_success
                 ;;
             *)
                 dns_fallback=$(echo "$res" | sed 's#|#,\ #g')
                 if [ -n "$dns_fallback" ]; then
-                    setconfig dns_fallback "'$dns_fallback'"
+                    setconfig_quote dns_fallback "$dns_fallback"
                     common_success
                 else
                     common_failed
@@ -465,7 +469,7 @@ set_dns_adv() {
                 ;;
             "r")
                 dns_resolver="223.5.5.5, 2400:3200::1"
-                setconfig dns_resolver "'$dns_resolver'"
+                setconfig_quote dns_resolver "$dns_resolver"
                 common_success
                 ;;
             *)
@@ -473,7 +477,7 @@ set_dns_adv() {
                     msg_alert "\033[31m$DNS_IPV6_NOT_SUPPORT\033[0m"
                 else
                     dns_resolver=$(echo "$res" | sed 's#|#,\ #g')
-                    setconfig dns_resolver "'$dns_resolver'"
+                    setconfig_quote dns_resolver "$dns_resolver"
                     msg_alert "\033[32m$COMMON_SUCCESS\033[0m"
                 fi
                 ;;
@@ -492,7 +496,7 @@ set_dns_adv() {
                 ;;
             "r")
                 dns_proxy_server="$dns_resolver"
-                setconfig dns_proxy_server "'$dns_proxy_server'"
+                setconfig_quote dns_proxy_server "$dns_proxy_server"
                 common_success
                 ;;
             *)
@@ -500,7 +504,7 @@ set_dns_adv() {
                     msg_alert "\033[31m$DNS_IPV6_NOT_SUPPORT\033[0m"
                 else
                     dns_proxy_server=$(echo "$res" | sed 's#|#,\ #g')
-                    setconfig dns_proxy_server "'$dns_proxy_server'"
+                    setconfig_quote dns_proxy_server "$dns_proxy_server"
                     msg_alert "\033[32m$COMMON_SUCCESS\033[0m"
                 fi
                 ;;
@@ -513,9 +517,9 @@ set_dns_adv() {
                 dns_nameserver='https://dns.alidns.com/dns-query, https://doh.pub/dns-query'
                 dns_fallback='https://cloudflare-dns.com/dns-query, https://dns.google/dns-query, https://doh.opendns.com/dns-query'
                 dns_resolver='https://223.5.5.5/dns-query, 2400:3200::1'
-                setconfig dns_nameserver "'$dns_nameserver'"
-                setconfig dns_fallback "'$dns_fallback'"
-                setconfig dns_resolver "'$dns_resolver'"
+                setconfig_quote dns_nameserver "$dns_nameserver"
+                setconfig_quote dns_fallback "$dns_fallback"
+                setconfig_quote dns_resolver "$dns_resolver"
                 content_line "\033[32m$DNS_ENCRYPT_OK\033[0m"
             else
                 content_line "\033[31m$DNS_CORE_REQUIRE\033[0m"

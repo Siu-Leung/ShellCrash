@@ -75,7 +75,7 @@ set_alias() {
         cecho " 3 【\033[32m mm \033[0m】"
         cecho " 0 Exit Installation"
         echo "-----------------------------------------------"
-        read -p "Enter number or custom alias > " res
+        read -r -p "Enter number or custom alias > " res
         case "$res" in
         0)
             echo "Installation cancelled"
@@ -94,7 +94,13 @@ set_alias() {
             my_alias=$res
             ;;
         esac
-        cmd=$(ckcmd "$my_alias" | grep 'menu.sh')
+        if ! echo "$my_alias" | grep -Eq '^[A-Za-z_][A-Za-z0-9_-]*$'; then
+            cecho "\033[31mAlias may only contain letters, digits, '_' and '-', and cannot start with a digit!\033[0m"
+            sleep 1
+            continue
+        fi
+        cmd=$(alias "$my_alias" 2>/dev/null | grep 'menu.sh')
+        [ -z "$cmd" ] && cmd=$(command -v "$my_alias" 2>/dev/null | grep 'menu.sh')
         ckcmd "$my_alias" && [ -z "$cmd" ] && {
             cecho "\033[33mThis alias conflicts with a system command; please choose another!\033[0m"
             sleep 1
@@ -104,8 +110,10 @@ set_alias() {
     done
 }
 gettar() {
-    webget /tmp/ShellCrash.tar.gz "$url/ShellCrash.tar.gz" >/dev/null 2>&1
+    tar_tmp=$(mktemp /tmp/ShellCrash.tar.gz.XXXXXX 2>/dev/null || echo "/tmp/ShellCrash.tar.gz.$$")
+    webget "$tar_tmp" "$url/ShellCrash.tar.gz" >/dev/null 2>&1
     if [ "$result" != "200" ]; then
+        rm -f "$tar_tmp"
         cecho "\033[33mFile download failed!\033[0m"
         error_down
         exit 1
@@ -115,13 +123,13 @@ gettar() {
         echo "-----------------------------------------------"
         echo "Starting file extraction!"
         mkdir -p "$CRASHDIR" >/dev/null
-        tar -zxf '/tmp/ShellCrash.tar.gz' -C "$CRASHDIR"/ || tar -zxf '/tmp/ShellCrash.tar.gz' --no-same-owner -C "$CRASHDIR"/
+        tar -zxf "$tar_tmp" -C "$CRASHDIR"/ || tar -zxf "$tar_tmp" --no-same-owner -C "$CRASHDIR"/
+        rm -f "$tar_tmp"
         if [ -s "$CRASHDIR"/init.sh ]; then
             set_alias
             . "$CRASHDIR"/init.sh >/dev/null
             [ "$?" != 0 ] && cecho "\033[33mInitialization failed, try local installation!\033[0m" && exit 1
         else
-            rm -rf /tmp/ShellCrash.tar.gz
             cecho "\033[33mFile extraction failed!\033[0m"
             error_down
             exit 1
@@ -131,9 +139,12 @@ gettar() {
 set_usb_dir() {
     while true; do
         cecho "Please select installation directory"
-        du -hL /mnt | awk '{print " "NR" "$2"  "$1}'
-        read -p "Enter number > " num
-        dir=$(du -hL /mnt | awk '{print $2}' | sed -n "$num"p)
+        du -hL /mnt 2>/dev/null | awk '{print " "NR" "$2"  "$1}'
+        read -r -p "Enter number > " num
+        dir=""
+        if echo "$num" | grep -Eq '^[1-9][0-9]*$'; then
+            dir=$(du -hL /mnt 2>/dev/null | awk '{print $2}' | sed -n "${num}p")
+        fi
         if [ -z "$dir" ]; then
             cecho "\033[31mInvalid input! Please try again!\033[0m"
             continue
@@ -149,7 +160,7 @@ set_xiaomi_dir() {
 	cecho " 4 Custom directory (Not recommended for beginners!)"
 	cecho " 0 Exit"
 	echo "-----------------------------------------------"
-	read -p "Enter number > " num
+	read -r -p "Enter number > " num
 	case "$num" in
 	1)
 		dir=/data
@@ -171,10 +182,13 @@ set_xiaomi_dir() {
 set_asus_usb() {
 	while true; do
 		echo -e "Please select USB directory"
-		du -hL /tmp/mnt | awk -F/ 'NF<=4' | awk '{print " "NR" "$2"  "$1}'
-		read -p "Enter number > " num
-		dir=$(du -hL /tmp/mnt | awk -F/ 'NF<=4' | awk '{print $2}' | sed -n "$num"p)
-		if [ ! -f "$dir/asusware.arm/etc/init.d/S50downloadmaster" ]; then
+		du -hL /tmp/mnt 2>/dev/null | awk -F/ 'NF<=4' | awk '{print " "NR" "$2"  "$1}'
+		read -r -p "Enter number > " num
+		dir=""
+		if echo "$num" | grep -Eq '^[1-9][0-9]*$'; then
+			dir=$(du -hL /tmp/mnt 2>/dev/null | awk -F/ 'NF<=4' | awk '{print $2}' | sed -n "${num}p")
+		fi
+		if [ -z "$dir" ] || [ ! -f "$dir/asusware.arm/etc/init.d/S50downloadmaster" ]; then
 			echo -e "\033[31mDownload Master startup file not found: $dir/asusware.arm/etc/init.d/S50downloadmaster. Check settings!\033[0m"
 			sleep 1
 		else
@@ -188,7 +202,7 @@ set_asus_dir() {
 	cecho " 2 Via startup script (Merlin firmware only)"
 	cecho " 0 Exit"
 	echo "-----------------------------------------------"
-	read -p "Enter number > " num
+	read -r -p "Enter number > " num
 	case "$num" in
 	1)
 		echo -e "Please install and enable Download Master in the router web UI first, then select the storage directory!"
@@ -211,8 +225,8 @@ set_cust_dir() {
         echo 'Path | Free Space:'
         df -h | awk '{print $6,$4}' | sed 1d
         echo 'Path must start with "/". Files in virtual memory (/tmp, /opt, /sys...) will be lost on reboot!!!'
-        read -p "Enter custom path > " dir
-        if [ "$(dir_avail "$dir")" = 0 ] || [ -n "$(echo "$dir" | grep -Eq '^/(tmp|opt|sys)(/|$)')" ]; then
+        read -r -p "Enter custom path > " dir
+        if [ -z "$dir" ] || [ "$(dir_avail "$dir")" = 0 ] || echo "$dir" | grep -Eq '^/(tmp|opt|sys)(/|$)'; then
             cecho "\033[31mInvalid path! Please try again!\033[0m"
             continue
         fi
@@ -237,7 +251,7 @@ setdir() {
 				cecho " 5 Manual path entry"
 				cecho " 0 Exit"
 				echo "----------------------------------------------"
-				read -p "Enter number > " num
+				read -r -p "Enter number > " num
 				# Set Dir
 				case "$num" in
 				1)
@@ -269,7 +283,7 @@ setdir() {
             sleep 1
         else
             cecho "Target directory: \033[32m$dir\033[0m | Free space: $(dir_avail "$dir" -h)"
-            read -p "Confirm installation? (1/0) > " res
+            read -r -p "Confirm installation? (1/0) > " res
             if [ "$res" = "1" ]; then
                 CRASHDIR="$dir"/ShellCrash
                 break
@@ -297,9 +311,9 @@ setversion() {
     cecho "\033[33mThis hardened fork ships a single edition:\033[0m"
     cecho " 1 \033[32mHardened build (dev, recommended)\033[0m"
     echo "-----------------------------------------------"
-    read -p "Enter number > " num
+    read -r -p "Enter number > " num
     release_type=dev
-    url=$(echo "$url" | sed "s/@[a-z]*/@dev/; s#/master#/dev#")
+    url=$(echo "$url" | sed "s/@[A-Za-z0-9_.-]*/@dev/; s#/master#/dev#; s#/stable#/dev#")
 }
 
 # Pre-Install Checks
@@ -317,19 +331,20 @@ check_systype() {
 	[ -w "/var/mnt/cfg/firewall" ] && systype=ng_snapshot   # NETGEAR device
 }
 check_user() {
-	if [ "$USER" != "root" ] && [ -z "$systype" ]; then
-		echo "Current User: $USER"
+	if [ "$(id -u 2>/dev/null)" != "0" ] && [ "$USER" != "root" ] && [ -z "$systype" ]; then
+		echo "Current User: ${USER:-$(id -un 2>/dev/null)}"
 		cecho "\033[31mPlease use the root user (do not use sudo directly!) to install!\033[0m"
 		echo "-----------------------------------------------"
-		read -p "Install anyway? Unknown errors may occur! (1/0) > " res
+		read -r -p "Install anyway? Unknown errors may occur! (1/0) > " res
 		[ "$res" != "1" ] && exit 1
 	fi
 }
 check_version() {
-	echo "$url" | grep -q 'master' && setversion
-	webget /tmp/version "$url/version" echooff
-	[ "$result" = "200" ] && versionsh=$(cat /tmp/version)
-	rm -rf /tmp/version
+	echo "$url" | grep -Eq '(@|/)(master|stable)(/|$)' && setversion
+	ver_tmp=$(mktemp /tmp/sc_version.XXXXXX 2>/dev/null || echo "/tmp/sc_version.$$")
+	webget "$ver_tmp" "$url/version" echooff
+	[ "$result" = "200" ] && versionsh=$(head -n 1 "$ver_tmp" | tr -d '\r\n ')
+	rm -f "$ver_tmp"
 
 	# Output
 	cecho "Latest Version: \033[32m$versionsh\033[0m"

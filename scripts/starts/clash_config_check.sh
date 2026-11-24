@@ -14,23 +14,23 @@ check_config() { #检查clash配置文件
         sleep 1
         echo "-----------------------------------------------"
         echo "请尝试使用6-2或者6-3的方式生成配置文件！"
-        exit 1
+        return 1
     fi
     rm -rf "$TMPDIR"/proxies.yaml
     #检测旧格式
     if cat "$core_config_new" | grep 'Proxy Group:' >/dev/null; then
         echo "-----------------------------------------------"
         logger "已经停止对旧格式配置文件的支持！！！" 31
-        echo -e "请使用新格式或者使用【在线生成配置文件】功能！"
+        echo -e "请使用新格式或者使用【本地拉取并转换配置文件】功能！"
         echo "-----------------------------------------------"
-        exit 1
+        return 1
     fi
     #检测不支持的加密协议
     if cat "$core_config_new" | grep 'cipher: chacha20,' >/dev/null; then
         echo "-----------------------------------------------"
         logger "已停止支持chacha20加密，请更换更安全的节点加密协议！" 31
         echo "-----------------------------------------------"
-        exit 1
+        return 1
     fi
     #检测并去除无效策略组
     [ -n "$url_type" ] && ckcmd xargs && {

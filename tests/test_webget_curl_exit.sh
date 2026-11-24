@@ -22,7 +22,7 @@ wget() {
 rm() {
     for arg; do
         case "$arg" in
-            -* | "$SANDBOX"/* | /tmp/webget_res) ;;
+            -* | "$SANDBOX"/* | /tmp/webget_res*) ;;
             *)
                 printf '%s\n' "$*" >>"$SANDBOX/rm_blocked"
                 return 1

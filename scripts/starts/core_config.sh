@@ -9,8 +9,6 @@
 . "$CRASHDIR"/libs/logger.sh
 . "$CRASHDIR"/libs/i18n.sh
 
-load_lang
-
 update_servers() { #更新servers_${i18n}.list
     get_bin "$TMPDIR"/servers_${i18n}.list public/servers_${i18n}.list
     [ "$?" = 0 ] && mv -f "$TMPDIR"/servers_${i18n}.list "$CRASHDIR"/configs/servers_${i18n}.list
@@ -41,11 +39,11 @@ get_core_config() { #下载或本地转换内核配置文件（零第三方转�
                 return 0
             else
                 logger "本地订阅拉取或转换失败，请检查订阅链接与网络连接！" 31
-                exit 1
+                return 1
             fi
         else
             logger "未配置直链订阅或本地提供者，请先在配置文件管理中添加订阅！" 31
-            exit 1
+            return 1
         fi
     fi
 
@@ -61,7 +59,7 @@ get_core_config() { #下载或本地转换内核配置文件（零第三方转�
         logger "配置文件获取失败！" 31
         echo -e "\033[31m请检查订阅链接或尝试使用【本地拉取并转换配置文件】功能！\033[0m"
         echo "-----------------------------------------------"
-        exit 1
+        return 1
     else
         Https=""
         if echo "$crashcore" | grep -q 'singbox'; then
@@ -69,7 +67,7 @@ get_core_config() { #下载或本地转换内核配置文件（零第三方转�
         else
             . "$CRASHDIR"/starts/clash_config_check.sh
         fi
-        check_config
+        check_config || return 1
         #如果不同则备份并替换文件
         if [ -s "$core_config" ]; then
             compare "$core_config_new" "$core_config"

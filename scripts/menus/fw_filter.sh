@@ -38,10 +38,10 @@ set_fw_filter() {
             fi
             ;;
         2)
-            checkcfg_mac=$(cat "$CRASHDIR"/configs/mac)
+            checkcfg_mac=$(cat "$CRASHDIR"/configs/mac "$CRASHDIR"/configs/ip_filter 2>/dev/null)
             fw_filter_lan
             if [ -n "$PID" ]; then
-                checkcfg_mac_new=$(cat "$CRASHDIR"/configs/mac)
+                checkcfg_mac_new=$(cat "$CRASHDIR"/configs/mac "$CRASHDIR"/configs/ip_filter 2>/dev/null)
                 [ "$checkcfg_mac" != "$checkcfg_mac_new" ] && checkrestart
             fi
             ;;
@@ -131,10 +131,10 @@ set_common_ports() {
                     read -r -p "$FWF_INPUT_PORT" port
                     if [ "$port" = 0 ]; then
                         break
+                    elif ! echo "$port" | grep -Eq '^[0-9]+$' || [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; then
+                        msg_alert "\033[31m$FWF_ERR_RANGE\033[0m"
                     elif echo ",$multiport," | grep -q ",$port,"; then
                         msg_alert "\033[31m$FWF_ERR_DUP\033[0m"
-                    elif [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; then
-                        msg_alert "\033[31m$FWF_ERR_RANGE\033[0m"
                     else
                         multiport=$(echo "$multiport,$port" | sed "s/^,//")
 
@@ -155,16 +155,14 @@ set_common_ports() {
                 read -r -p "$FWF_INPUT_PORT" port
                 if [ "$port" = 0 ]; then
                     break
+                elif ! echo "$port" | grep -Eq '^[0-9]+$' || [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; then
+                    msg_alert "\033[31m$FWF_ERR_RANGE\033[0m"
                 elif echo ",$multiport," | grep -q ",$port,"; then
-                    if [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; then
-                        msg_alert "\033[31m$FWF_ERR_RANGE\033[0m"
+                    multiport=$(echo ",$multiport," | sed "s/,$port//; s/^,//; s/,$//")
+                    if setconfig multiport "$multiport"; then
+                        msg_alert "\033[32m$COMMON_SUCCESS\033[0m"
                     else
-                        multiport=$(echo ",$multiport," | sed "s/,$port//; s/^,//; s/,$//")
-                        if setconfig multiport "$multiport"; then
-                            msg_alert "\033[32m$COMMON_SUCCESS\033[0m"
-                        else
-                            msg_alert "\033[31m$COMMON_FAILED\033[0m"
-                        fi
+                        msg_alert "\033[31m$COMMON_FAILED\033[0m"
                     fi
                 else
                     msg_alert "\033[31m$FWF_ERR_DUP\033[0m"
@@ -232,9 +230,9 @@ set_cust_host_ipv4() {
             fi
             ;;
         *)
-            if echo "$text" | grep -Eq '^([0-9]{1,3}\.){3}[0-9]{1,3}/[0-9]{1,2}' && [ -z "$(echo $cust_host_ipv4 | grep "$text")" ]; then
+            if echo "$text" | grep -Eq '^([0-9]{1,3}\.){3}[0-9]{1,3}/([0-9]|[1-2][0-9]|3[0-2])$' && ! echo " $cust_host_ipv4 " | grep -Fq " $text "; then
                 cust_host_ipv4="$cust_host_ipv4 $text"
-                if setconfig cust_host_ipv4 "'$cust_host_ipv4'"; then
+                if setconfig_quote cust_host_ipv4 "$cust_host_ipv4"; then
                     msg_alert "\033[32m$COMMON_SUCCESS\033[0m"
                 else
                     msg_alert "\033[31m$COMMON_FAILED\033[0m"
@@ -271,9 +269,9 @@ set_reserve_ipv4() {
             fi
             ;;
         *)
-            if echo "$text" | grep -Eq "(((25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\.){3}(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])/(3[0-2]|[1-2]?[0-9]))( +|$)+"; then
+            if echo "$text" | grep -Eq "^((((25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\.){3}(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])/(3[0-2]|[1-2]?[0-9]))( +|$))+$"; then
                 reserve_ipv4="$text"
-                if setconfig reserve_ipv4 "'$reserve_ipv4'"; then
+                if setconfig_quote reserve_ipv4 "$reserve_ipv4"; then
                     msg_alert "\033[32m$FWF_RESERVE_SET$reserve_ipv4\033[0m"
                 else
                     msg_alert "\033[31m$COMMON_FAILED\033[0m"
@@ -322,14 +320,14 @@ fw_filter_lan() {
                 i=
                 break
             elif echo "$num" | grep -aEq '^([0-9A-Fa-f]{2}[:]){5}([0-9A-Fa-f]{2})$'; then
-                if [ -z "$(cat "$CRASHDIR"/configs/mac | grep -E "$num")" ]; then
-                    echo "$num" | grep -oE '^([0-9A-Fa-f]{2}[:]){5}([0-9A-Fa-f]{2})$' >>"$CRASHDIR"/configs/mac
+                if ! grep -qxF "$num" "$CRASHDIR"/configs/mac 2>/dev/null; then
+                    echo "$num" >>"$CRASHDIR"/configs/mac
                 else
                     msg_alert "\033[31m$FWF_MAC_DUP\033[0m"
                 fi
-            elif [ "$num" -le $(cat $dhcpdir 2>/dev/null | awk 'END{print NR}') ]; then
-                macadd=$(cat "$dhcpdir" | awk '{print $2}' | sed -n "$num"p)
-                if [ -z "$(cat "$CRASHDIR"/configs/mac | grep -E "$macadd")" ]; then
+            elif echo "$num" | grep -Eq '^[1-9][0-9]*$' && [ "$num" -le "$(cat "$dhcpdir" 2>/dev/null | awk 'END{print NR+0}')" ]; then
+                macadd=$(awk '{print $2}' "$dhcpdir" | sed -n "${num}p")
+                if [ -n "$macadd" ] && ! grep -qxF "$macadd" "$CRASHDIR"/configs/mac 2>/dev/null; then
                     echo "$macadd" >>"$CRASHDIR"/configs/mac
                 else
                     msg_alert "\033[31m$FWF_MAC_DUP\033[0m"
@@ -371,14 +369,14 @@ fw_filter_lan() {
                 i=
                 break
             elif echo "$num" | grep -aEq '^((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)(/(3[0-2]|[12]?[0-9]))?$'; then
-                if [ -z "$(cat "$CRASHDIR"/configs/ip_filter | grep -E "$num")" ]; then
-                    echo "$num" | grep -oE '^((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)(/(3[0-2]|[12]?[0-9]))?$' >>"$CRASHDIR"/configs/ip_filter
+                if ! grep -qxF "$num" "$CRASHDIR"/configs/ip_filter 2>/dev/null; then
+                    echo "$num" >>"$CRASHDIR"/configs/ip_filter
                 else
                     msg_alert "\033[31m$FWF_IP_DUP\033[0m"
                 fi
-            elif [ "$num" -le "$(cat "$dhcpdir" 2>/dev/null | awk 'END{print NR}')" ]; then
-                ipadd=$(cat "$dhcpdir" | awk '{print $3}' | sed -n "$num"p)
-                if [ -z "$(cat "$CRASHDIR"/configs/mac | grep -E "$ipadd")" ]; then
+            elif echo "$num" | grep -Eq '^[1-9][0-9]*$' && [ "$num" -le "$(cat "$dhcpdir" 2>/dev/null | awk 'END{print NR+0}')" ]; then
+                ipadd=$(awk '{print $3}' "$dhcpdir" | sed -n "${num}p")
+                if [ -n "$ipadd" ] && ! grep -qxF "$ipadd" "$CRASHDIR"/configs/ip_filter 2>/dev/null; then
                     echo "$ipadd" >>"$CRASHDIR"/configs/ip_filter
                 else
                     msg_alert "\033[31m$FWF_IP_DUP\033[0m"
@@ -409,9 +407,11 @@ fw_filter_lan() {
                 read -r -p "$COMMON_INPUT> " num
                 mac_filter_rows=$(cat "$CRASHDIR"/configs/mac 2>/dev/null | wc -l)
                 ip_filter_rows=$(cat "$CRASHDIR"/configs/ip_filter 2>/dev/null | wc -l)
-                if [ -z "$num" ] || [ "$num" -le 0 ]; then
+                if [ -z "$num" ] || [ "$num" = 0 ]; then
                     n=
                     break
+                elif ! echo "$num" | grep -Eq '^[1-9][0-9]*$'; then
+                    msg_alert "\033[31m$FWF_RESERVE_ERR\033[0m"
                 elif [ "$num" -le "$mac_filter_rows" ]; then
                     sed -i "${num}d" "$CRASHDIR"/configs/mac
                     msg_alert "\033[32m$FWF_REMOVE_OK\033[0m"
@@ -447,7 +447,7 @@ fw_filter_lan() {
             "" \
             "$FWF_FILTER_MODE\033[33m$macfilter_type_show$FWF_FILTER_MODE_SUFFIX\033[0m" \
             "\033[36m$fw_filter_lan_desc\033[0m"
-        if [ -n "$(cat "$CRASHDIR"/configs/mac)" ]; then
+        if [ -s "$CRASHDIR/configs/mac" ] || [ -s "$CRASHDIR/configs/ip_filter" ]; then
             content_line "$FWF_FILTER_EXISTED"
             content_line ""
             content_line "$FWF_FILTER_HEADER"

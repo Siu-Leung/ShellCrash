@@ -1,48 +1,44 @@
 #!/bin/sh
 
-. ${CRASHDIR}/configs/ShellCrash.cfg
-. "$CRASHDIR"/libs/set_proxy.sh
+. "${CRASHDIR}"/libs/get_config.sh
+. "${CRASHDIR}"/libs/set_config.sh
+. "${CRASHDIR}"/libs/set_proxy.sh
+. "${CRASHDIR}"/libs/logger.sh
 OFFSET=0
 API="https://api.telegram.org/bot$TGBOT_TOKEN"
-STATE_FILE="/tmp/ShellCrash/tgbot_state"
-LOGFILE="/tmp/ShellCrash/tgbot.log"
+[ -z "$TMPDIR" ] && TMPDIR=/tmp/ShellCrash
+mkdir -p "$TMPDIR"
+STATE_FILE="$TMPDIR/tgbot_state"
+LOGFILE="$TMPDIR/tgbot.log"
 
 ### --- 基础函数 --- ###
-setconfig() {
-	#参数1代表变量名，参数2代表变量值
-	configpath=${CRASHDIR}/configs/ShellCrash.cfg
-	grep -q "${1}=" "$configpath" && sed -i "s#${1}=.*#${1}=${2}#g" $configpath || sed -i "\$a\\${1}=${2}" $configpath
-}
-setproxy(){
-	[ -n "$(pidof CrashCore)" ] && {
-		[ -n "$authentication" ] && auth="$authentication@"
-		[ -z "$mix_port" ] && mix_port=7890
-		export https_proxy="http://${auth}127.0.0.1:$mix_port"
-	}
-}
-webget() {
+webget() (
 	setproxy
 	cert_flag=""
 	[ "$skip_cert" = "ON" ] && cert_flag="-k"
 	if curl --version >/dev/null 2>&1; then
-		curl $cert_flag -fsSl --connect-timeout 3 "$1" 2>/dev/null
+		curl $cert_flag -fsSl --connect-timeout 3 --max-time "${2:-35}" "$1" 2>/dev/null
 	else
-		wget_proxy on -q --timeout=3 -O - "$1"
+		wcert=""
+		[ "$skip_cert" = "ON" ] && wget --help 2>&1 | grep -q 'no-check-certificate' && wcert="--no-check-certificate"
+		wget_proxy on -q $wcert --timeout="${2:-35}" -O - "$1"
 	fi
-}
-webpost() {
+)
+webpost() (
 	setproxy
 	cert_flag=""
 	[ "$skip_cert" = "ON" ] && cert_flag="-k"
 	if curl --version >/dev/null 2>&1; then
-		curl $cert_flag -fsSl -X POST --connect-timeout 3 -H "Content-Type: application/json; charset=utf-8" "$1" -d "$2" >/dev/null 2>&1
+		curl $cert_flag -fsSl -X POST --connect-timeout 3 --max-time 10 -H "Content-Type: application/json; charset=utf-8" "$1" -d "$2" >/dev/null 2>&1
 	else
-		wget_proxy on -q --timeout=3 --method=POST --header="Content-Type: application/json; charset=utf-8" --body-data="$2" "$1"
+		wcert=""
+		[ "$skip_cert" = "ON" ] && wget --help 2>&1 | grep -q 'no-check-certificate' && wcert="--no-check-certificate"
+		wget_proxy on -q $wcert --timeout=5 --method=POST --header="Content-Type: application/json; charset=utf-8" --body-data="$2" -O /dev/null "$1" >/dev/null 2>&1
 	fi
-}
+)
 send_msg() {
-    TEXT="$1"
-	webpost "$API/sendMessage" "{\"chat_id\":\"$TGBOT_CHATID\",\"text\":\"$TEXT\",\"parse_mode\":\"Markdown\"}"
+    _esc_text=$(json_escape "$1")
+	webpost "$API/sendMessage" "{\"chat_id\":\"$TGBOT_CHATID\",\"text\":\"$_esc_text\",\"parse_mode\":\"Markdown\"}"
 }
 send_help(){
     TEXT=$(cat <<EOF
@@ -58,15 +54,15 @@ send_menu() {
 	PID=$(pidof CrashCore | awk '{print $NF}')
 	if [ -n "$PID" ]; then
 		run=正在运行
-		VmRSS=$(cat /proc/$PID/status | grep -w VmRSS | awk 'unit="MB" {printf "%.2f %s\n", $2/1000, unit}')
-		start_time=$(cat /tmp/ShellCrash/crash_start_time)
+		VmRSS=$(awk '/^VmRSS:/ {printf "%.2f MB\n", $2/1000}' "/proc/$PID/status" 2>/dev/null)
+		start_time=$(cat "$TMPDIR/crash_start_time" 2>/dev/null)
 		if [ -n "$start_time" ]; then
 			time=$(($(date +%s) - start_time))
 			day=$((time / 86400))
 			[ "$day" = "0" ] && day='' || day="$day天"
-			time=$(date -u -d @${time} +%H小时%M分%S秒)
+			time=$(date -u -d @"${time}" +%H小时%M分%S秒)
 		fi
-	corename=$(echo $crashcore | sed 's/singboxr/SingBoxR/' | sed 's/singbox/SingBox/' | sed 's/clash/Clash/' | sed 's/meta/Mihomo/')
+		corename=$(echo "$crashcore" | sed 's/singboxr/SingBoxR/' | sed 's/singbox/SingBox/' | sed 's/clash/Clash/' | sed 's/meta/Mihomo/')
 	else
 		run=未运行
 	fi
@@ -77,7 +73,7 @@ $corename服务$run               【*$redir_mod*】
 请选择操作：
 EOF
 )
-
+    _esc_text=$(json_escape "$TEXT")
     MENU=$(cat <<'EOF'
 {
   "inline_keyboard":[
@@ -94,23 +90,25 @@ EOF
 }
 EOF
 )
-
-webpost "$API/sendMessage" "{\"chat_id\":\"$TGBOT_CHATID\",\"text\":\"$TEXT\",\"parse_mode\":\"Markdown\",\"reply_markup\":$MENU}"
-
+	webpost "$API/sendMessage" "{\"chat_id\":\"$TGBOT_CHATID\",\"text\":\"$_esc_text\",\"parse_mode\":\"Markdown\",\"reply_markup\":$MENU}"
 }
 
 ### --- 具体操作函数 --- ###
 do_start_fw() {
-	[ -z "$redir_mod_bf" ] && redir_mod_bf='Redir模式'
+	[ -z "$redir_mod_bf" ] && redir_mod_bf='Redir'
+	[ -z "$firewall_area_bf" ] && firewall_area_bf='1'
 	redir_mod=$redir_mod_bf
-	setconfig redir_mod $redir_mod
+	firewall_area=$firewall_area_bf
+	setconfig redir_mod "$redir_mod"
+	setconfig firewall_area "$firewall_area"
 	"$CRASHDIR"/start.sh start_firewall
     echo "ShellCrash 透明路由*$redir_mod_bf*已启用！" > "$LOGFILE"
 }
 do_stop_fw() {
 	redir_mod_bf=$redir_mod
-	redir_mod='纯净模式'
-	setconfig redir_mod $redir_mod
+	[ "$firewall_area" != "4" ] && firewall_area_bf=$firewall_area
+	firewall_area=4
+	setconfig firewall_area 4
 	"$CRASHDIR"/start.sh stop_firewall
     echo "ShellCrash 已切换到纯净模式！" > "$LOGFILE"
 }
@@ -119,31 +117,52 @@ do_restart() {
     echo "ShellCrash 服务已重启！" > "$LOGFILE"
 }
 do_refresh() {
-    "$CRASHDIR"/start.sh hotupdate
+    "$CRASHDIR"/task/task.sh hotupdate
 	echo "ShellCrash 已完成热更新订阅！" > "$LOGFILE"
 }
 do_set_sub() {
     #echo "$1" "$2" >> "$CRASHDIR"/configs/providers.cfg
     echo "错误，还未完成的功能！" > "$LOGFILE"
+}
 
+extract_chat_id() {
+	if command -v jq >/dev/null 2>&1; then
+		printf '%s' "$1" | jq -r '.result[0] | (.message.chat.id // .callback_query.message.chat.id // empty)' 2>/dev/null
+	else
+		printf '%s' "$1" | grep -oE '"chat":[[:space:]]*\{[[:space:]]*"id":[[:space:]]*-?[0-9]+' | head -n 1 | grep -oE -- '-?[0-9]+$'
+	fi
 }
 
 ### --- 轮询主进程 --- ###
 polling(){
+	case "$TGBOT_CHATID" in
+		'' | *[!0-9-]*) echo "Invalid or empty TGBOT_CHATID, aborting." >&2; exit 1 ;;
+	esac
+	[ -z "$TGBOT_TOKEN" ] && { echo "Empty TGBOT_TOKEN, aborting." >&2; exit 1; }
 	while true; do
-		UPDATES=$(webget "$API/getUpdates?timeout=25&offset=$OFFSET")
+		UPDATES=$(webget "$API/getUpdates?timeout=25&limit=1&offset=$OFFSET" 35)
 
-		echo "$UPDATES" | grep -q '"update_id"' || continue
+		echo "$UPDATES" | grep -q '"update_id"' || {
+			sleep 10
+			continue
+		}
 
-		OFFSET=$(echo "$UPDATES" | grep -o '"update_id":[0-9]*' | tail -n1 | cut -d: -f2)
+		OFFSET=$(echo "$UPDATES" | grep -o '"update_id":[0-9]*' | head -n1 | cut -d: -f2)
+		case "$OFFSET" in
+			'' | *[!0-9]*) sleep 5; continue ;;
+		esac
 		OFFSET=$((OFFSET + 1))
-		
+
+		### --- 严格校验 ChatID（杜绝未授权控制） --- ###
+		CHATID=$(extract_chat_id "$UPDATES")
+		[ -n "$TGBOT_CHATID" ] && [ "$CHATID" = "$TGBOT_CHATID" ] || continue
+
 		### --- 处理按钮事件 --- ###
 		CALLBACK=$(echo "$UPDATES" | grep -o '"data":"[^"]*"' | head -n1 | sed 's/.*:"//;s/"$//')
 
 		case "$CALLBACK" in
 			"start_redir")
-				if [ "$redir_mod" = '纯净模式' ];then
+				if [ "$firewall_area" = '4' ];then
 					do_start_fw
 					send_msg  "已切换到$redir_mod_bf！"
 				else
@@ -153,7 +172,7 @@ polling(){
 				continue
 				;;
 			"stop_redir")
-				if [ "$redir_mod" != '纯净模式' ];then
+				if [ "$firewall_area" != '4' ];then
 					do_stop_fw
 					send_msg  "已切换到纯净模式"
 				else
@@ -171,7 +190,8 @@ polling(){
 				;;
 			"refresh")
 				do_refresh
-				send_msg  "🌀 刷新完成：\n$(cat "$LOGFILE")"
+				send_msg  "🌀 刷新完成：
+$(cat "$LOGFILE" 2>/dev/null)"
 				send_menu 
 				continue
 				;;
@@ -189,7 +209,8 @@ polling(){
 		if [ "$(cat "$STATE_FILE" 2>/dev/null)" = "await_sub" ]; then
 			echo "" > "$STATE_FILE"
 			do_set_sub "$TEXT"
-			send_msg  "订阅更新完成：\n$(cat "$LOGFILE")"
+			send_msg  "订阅更新完成：
+$(cat "$LOGFILE" 2>/dev/null)"
 			send_menu 
 			continue
 		fi
@@ -210,43 +231,38 @@ polling(){
 
 ### --- 初始设置 --- ###
 set_botmenu(){
-	curl -s -X POST "https://api.telegram.org/bot$TOKEN/setMyCommands" \
-	  -H "Content-Type: application/json" \
-	  -d '{
-			"commands": [
-			  {"command": "crash", "description": "呼出ShellCrash菜单"},
-			  {"command": "help",  "description": "查看帮助"}
-			]
-		  }'
+	webpost "https://api.telegram.org/bot$TOKEN/setMyCommands" '{"commands":[{"command":"crash","description":"呼出ShellCrash菜单"},{"command":"help","description":"查看帮助"}]}'
 }
 set_token(){
 	echo -----------------------------------------------
 	echo -e "请先通过 \033[32;4mhttps://t.me/BotFather\033[0m 申请TG机器人并获取其\033[36mAPI TOKEN\033[0m"
 	echo -----------------------------------------------
-	read -p "请输入你获取到的API TOKEN > " TOKEN
+	read -r -p "请输入你获取到的API TOKEN > " TOKEN
+	if ! printf '%s' "$TOKEN" | grep -qE '^[0-9]+:[A-Za-z0-9_-]{20,}$'; then
+		echo -e "\033[31mAPI TOKEN 格式无效！\033[0m"
+		return 1
+	fi
 	echo -----------------------------------------------
 	echo -e "请向\033[32m你申请的机器人\033[31m而不是BotFather\033[0m，发送任意几条消息！"
 	echo -----------------------------------------------
-	read -p "我已经发送完成(1/0) > " res
+	read -r -p "我已经发送完成(1/0) > " res
 	if [ "$res" = 1 ]; then
-		url_tg=https://api.telegram.org/bot${TOKEN}/getUpdates
-		[ -n "$authentication" ] && auth="$authentication@"
-		export https_proxy="http://${auth}127.0.0.1:$mix_port"
-		chat=$(webget $url_tg | tail -n -1)
-		[ -n "$chat" ] && chat_ID=$(echo $chat | grep -oE '"id":.*,"is_bot":false' | sed s'/"id"://'g | sed s'/,"is_bot":false//'g)
+		url_tg="https://api.telegram.org/bot${TOKEN}/getUpdates"
+		chat=$(webget "$url_tg" 15 | tail -n 1)
+		[ -n "$chat" ] && chat_ID=$(printf '%s' "$chat" | grep -oE '"chat":[[:space:]]*\{[[:space:]]*"id":[[:space:]]*-?[0-9]+' | tail -n 1 | grep -oE -- '-?[0-9]+$')
 		[ -z "$chat_ID" ] && {
 			echo -e "\033[31m无法获取对话ID，请确认使用的不是已经被绑定的机器人，或手动输入ChatID！\033[0m"
 			echo -e "通常访问 $url_tg 即可看到ChatID，也可以尝试其他方法\033[0m"
-			read -p "请手动输入ChatID > " chat_ID
+			read -r -p "请手动输入ChatID > " chat_ID
 		}
-		if [ -n "$chat_ID" ]; then
+		if printf '%s' "$chat_ID" | grep -qE '^-?[0-9]{5,}$'; then
 			TGBOT_TOKEN=$TOKEN
-			setconfig TGBOT_TOKEN $TOKEN
-			setconfig TGBOT_CHATID $chat_ID
+			setconfig_quote TGBOT_TOKEN "$TOKEN"
+			setconfig TGBOT_CHATID "$chat_ID"
 			set_botmenu
 			echo -e "\033[32m已完成Telegram机器人设置！\033[0m"
 		else
-			echo -e "\033[31m无法获取对话ID，请重新配置！\033[0m"
+			echo -e "\033[31m无法获取有效对话ID，请重新配置！\033[0m"
 		fi
 	fi
 }

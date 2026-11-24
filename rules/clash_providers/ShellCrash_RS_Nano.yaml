@@ -15,14 +15,14 @@ rule-providers:
     behavior: ipcidr
     format: mrs
     path: ./ruleset/privateip.mrs
-    url: "https://cdn.jsdelivr.net/gh/DustinWin/ruleset_geodata@mihomo-ruleset/privateip.mrs"
+    url: "https://cdn.jsdelivr.net/gh/Siu-Leung/ShellCrash@update/bin/ruleset/mrs/privateip.mrs"
     interval: 86400
   cnip:
     type: http
     behavior: ipcidr
     format: mrs
     path: ./ruleset/cnip.mrs
-    url: "https://cdn.jsdelivr.net/gh/DustinWin/ruleset_geodata@mihomo-ruleset/cnip.mrs"
+    url: "https://cdn.jsdelivr.net/gh/Siu-Leung/ShellCrash@update/bin/ruleset/mrs/cnip.mrs"
     interval: 86400
 rules:
   - RULE-SET,privateip,🎯 本地直连,no-resolve

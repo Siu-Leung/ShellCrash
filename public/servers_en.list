@@ -20,11 +20,12 @@
 509 Acl4SSR多国精简 https://github.com/Siu-Leung/ShellCrash/raw/dev/rules/ACL4SSR_Online_Mini_MultiCountry.ini
 510 Acl4SSR回国专用 https://github.com/Siu-Leung/ShellCrash/raw/dev/rules/ACL4SSR_BackCN.ini
 511 Acl4SSR增强国外GFW https://github.com/Siu-Leung/ShellCrash/raw/dev/rules/ACL4SSR_WithGFW.ini (适合黑名单模式使用)
-512 DustinWin全分组规则 https://raw.githubusercontent.com/DustinWin/ruleset_geodata/master/rule_templates/DustinWin_Full.ini
-513 DustinWin无广告全分组规则 https://raw.githubusercontent.com/DustinWin/ruleset_geodata/master/rule_templates/DustinWin_Full_NoAds.ini
-514 DustinWin精简规则 https://raw.githubusercontent.com/DustinWin/ruleset_geodata/master/rule_templates/DustinWin_Lite.ini (推荐)
-515 DustinWin无广告精简规则 https://raw.githubusercontent.com/DustinWin/ruleset_geodata/master/rule_templates/DustinWin_Lite_NoAds.ini
-516 DustinWin黑名单模式规则 https://raw.githubusercontent.com/DustinWin/ruleset_geodata/master/rule_templates/DustinWin_Blacklist.ini
-517 DustinWin无广告黑名单模式规则 https://raw.githubusercontent.com/DustinWin/ruleset_geodata/master/rule_templates/DustinWin_Blacklist_NoAds.ini
-518 DustinWin轻量规则 https://raw.githubusercontent.com/DustinWin/ruleset_geodata/master/rule_templates/DustinWin_Light.ini
-519 DustinWin极简规则 https://raw.githubusercontent.com/DustinWin/ruleset_geodata/master/rule_templates/DustinWin_Nano.ini
+# [Security Hardening] Third-party rule URLs disabled (all rulesets are self-hosted on @update/bin/ruleset/):
+# 512 DustinWin全分组规则 https://raw.githubusercontent.com/DustinWin/ruleset_geodata/master/rule_templates/DustinWin_Full.ini
+# 513 DustinWin无广告全分组规则 https://raw.githubusercontent.com/DustinWin/ruleset_geodata/master/rule_templates/DustinWin_Full_NoAds.ini
+# 514 DustinWin精简规则 https://raw.githubusercontent.com/DustinWin/ruleset_geodata/master/rule_templates/DustinWin_Lite.ini (推荐)
+# 515 DustinWin无广告精简规则 https://raw.githubusercontent.com/DustinWin/ruleset_geodata/master/rule_templates/DustinWin_Lite_NoAds.ini
+# 516 DustinWin黑名单模式规则 https://raw.githubusercontent.com/DustinWin/ruleset_geodata/master/rule_templates/DustinWin_Blacklist.ini
+# 517 DustinWin无广告黑名单模式规则 https://raw.githubusercontent.com/DustinWin/ruleset_geodata/master/rule_templates/DustinWin_Blacklist_NoAds.ini
+# 518 DustinWin轻量规则 https://raw.githubusercontent.com/DustinWin/ruleset_geodata/master/rule_templates/DustinWin_Light.ini
+# 519 DustinWin极简规则 https://raw.githubusercontent.com/DustinWin/ruleset_geodata/master/rule_templates/DustinWin_Nano.ini

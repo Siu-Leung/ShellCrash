@@ -35,35 +35,35 @@
         "type": "remote",
         "format": "binary",
         "path": "./ruleset/private.srs",
-        "url": "https://cdn.jsdelivr.net/gh/DustinWin/ruleset_geodata@sing-box-ruleset/private.srs"
+        "url": "https://cdn.jsdelivr.net/gh/Siu-Leung/ShellCrash@update/bin/ruleset/srs/private.srs"
       },
       {
         "tag": "tld-proxy",
         "type": "remote",
         "format": "binary",
         "path": "./ruleset/tld-proxy.srs",
-        "url": "https://cdn.jsdelivr.net/gh/DustinWin/ruleset_geodata@sing-box-ruleset/tld-proxy.srs"
+        "url": "https://cdn.jsdelivr.net/gh/Siu-Leung/ShellCrash@update/bin/ruleset/srs/tld-proxy.srs"
       },
       {
         "tag": "proxy",
         "type": "remote",
         "format": "binary",
         "path": "./ruleset/proxy.srs",
-        "url": "https://cdn.jsdelivr.net/gh/DustinWin/ruleset_geodata@sing-box-ruleset/proxy.srs"
+        "url": "https://cdn.jsdelivr.net/gh/Siu-Leung/ShellCrash@update/bin/ruleset/srs/proxy.srs"
       },
       {
         "tag": "telegramip",
         "type": "remote",
         "format": "binary",
         "path": "./ruleset/telegramip.srs",
-        "url": "https://cdn.jsdelivr.net/gh/DustinWin/ruleset_geodata@sing-box-ruleset/telegramip.srs"
+        "url": "https://cdn.jsdelivr.net/gh/Siu-Leung/ShellCrash@update/bin/ruleset/srs/telegramip.srs"
       },
       {
         "tag": "cnip",
         "type": "remote",
         "format": "binary",
         "path": "./ruleset/cnip.srs",
-        "url": "https://cdn.jsdelivr.net/gh/DustinWin/ruleset_geodata@sing-box-ruleset/cnip.srs"
+        "url": "https://cdn.jsdelivr.net/gh/Siu-Leung/ShellCrash@update/bin/ruleset/srs/cnip.srs"
       }
     ],
     "final": "🐟 漏网之鱼"

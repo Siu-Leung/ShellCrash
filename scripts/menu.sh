@@ -11,7 +11,7 @@ CFG_PATH="$CRASHDIR"/configs/ShellCrash.cfg
 # 加载执行目录，失败则初始化
 . "$CRASHDIR"/libs/get_config.sh
 [ -z "$BINDIR" -o -z "$TMPDIR" -o -z "$COMMAND" ] && . "$CRASHDIR"/init.sh >/dev/null 2>&1
-[ ! -f "$TMPDIR" ] && mkdir -p "$TMPDIR"
+[ ! -d "$TMPDIR" ] && mkdir -p "$TMPDIR"
 
 # 通用工具
 . "$CRASHDIR"/libs/set_config.sh
@@ -23,7 +23,7 @@ CFG_PATH="$CRASHDIR"/configs/ShellCrash.cfg
 . "$CRASHDIR"/menus/running_status.sh
 
 # 加载Tui界面
-[ -z "$tui_type" ] && tui_type='tui_layout'
+[ "$tui_type" != 'tui_layout' ] && [ "$tui_type" != 'tui_lite' ] && tui_type='tui_layout'
 [ "$1" = '-l' ] && tui_type='tui_lite'
 . "$CRASHDIR"/menus/"$tui_type".sh
 
@@ -99,7 +99,7 @@ ckstatus() {
     [ -z "$host" ] && host=$(ubus call network.interface.lan status 2>&1 | grep \"address\" | grep -oE '[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}')
     [ -z "$host" ] && host=$(ip a 2>&1 | grep -w 'inet' | grep 'global' | grep 'lan' | grep -E ' 1(92|0|72)\.' | sed 's/.*inet.//g' | sed 's/\/[0-9][0-9].*$//g' | head -n 1)
     [ -z "$host" ] && host=$(ip a 2>&1 | grep -w 'inet' | grep 'global' | grep -E ' 1(92|0|72)\.' | sed 's/.*inet.//g' | sed 's/\/[0-9][0-9].*$//g' | head -n 1)
-    [ -z "$host" ] && host='$MENU_IP_DF'
+    [ -z "$host" ] && host="$MENU_IP_DF"
 
     # dashboard目录位置
     if [ -f /www/clash/index.html ]; then
@@ -145,6 +145,7 @@ ckstatus() {
     # 检查/tmp内核文件
     for file in $(ls /tmp | grep -v [/$] | grep -v ' ' | grep -Ev ".*(zip|7z|tar)$" | grep -iE 'CrashCore|^clash$|^clash-linux.*|^mihomo.*|^sing.*box'); do
 		local tmp_file="/tmp/$file"
+        [ -f "$tmp_file" ] && [ ! -L "$tmp_file" ] || continue
         comp_box "$MENU_TMP_CORE_FOUND \033[36m$tmp_file\033[0m" \
             "$MENU_TMP_CORE_ASK"
         btm_box "1) $MENU_LOAD_NOW" \
@@ -168,11 +169,12 @@ ckstatus() {
     # 检查/tmp配置文件
     for file in $(ls /tmp | grep -v [/$] | grep -v ' ' | grep -iE 'config.yaml$|config.yml$|config.json$'); do
         local tmp_file="/tmp/$file"
+        [ -f "$tmp_file" ] && [ ! -L "$tmp_file" ] || continue
         comp_box "$MENU_TMP_CFG_FOUND\033[36m$tmp_file\033[0m" \
             "$MENU_TMP_CFG_ASK"
         btm_box "1) $MENU_LOAD_NOW" \
             "0) $MENU_LOAD_LATER"
-        read -p "$COMMON_INPUT> " res
+        read -r -p "$COMMON_INPUT> " res
         [ "$res" = 1 ] && {
             if [ -n "$(echo $tmp_file | grep -iE '.json$')" ]; then
                 mv -f "$tmp_file" "$CRASHDIR"/jsons/config.json
@@ -189,7 +191,7 @@ ckstatus() {
             "$MENU_OVERRIDE_ASK"
         btm_box "1) $MENU_YES" \
             "0) $MENU_NO"
-        read -p "$COMMON_INPUT> " res
+        read -r -p "$COMMON_INPUT> " res
         [ "$res" = 1 ] && unset disoverride && setconfig disoverride
     }
 

@@ -81,7 +81,7 @@ core_check(){
         setconfig COMMAND "$COMMAND" "$CRASHDIR"/configs/command.env && . "$CRASHDIR"/configs/command.env
         setconfig crashcore "$crashcore"
         setconfig core_v "$core_v"
-        setconfig custcorelink "$custcorelink"
+        setconfig_quote custcorelink "$custcorelink"
         return 0
     fi
 }
@@ -94,6 +94,7 @@ core_webget(){
         [ "$zip_type" = 'upx' ] && store_raw_worth_it 47185920 && zip_type='tar.gz'
         get_bin "$TMPDIR/Coretmp.$zip_type" "bin/$crashcore/${target}-linux-${cpucore}.$zip_type"
     else
+        zip_type=""
         case "$custcorelink" in
             *.tar.gz) zip_type="tar.gz" ;;
             *.gz)     zip_type="gz" ;;
@@ -102,7 +103,7 @@ core_webget(){
         [ -n "$zip_type" ] && webget "$TMPDIR/Coretmp.$zip_type" "$custcorelink"
     fi
     #校验内核
-    if [ "$?" = 0 ];then
+    if [ "$?" = 0 ] && [ -n "$zip_type" ];then
         core_check "$TMPDIR/Coretmp.$zip_type"
     else
         rm -f "$TMPDIR/Coretmp.$zip_type"

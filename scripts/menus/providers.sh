@@ -15,12 +15,17 @@ fi
 providers() {
     while true; do
         # 获取模版名称
-        if [ -z "$(grep "provider_temp_${CORE_TYPE}" "$CRASHDIR"/configs/ShellCrash.cfg)" ]; then
-            provider_temp_des=$(sed -n "1 p" "$CRASHDIR"/configs/"${CORE_TYPE}"_providers.list | awk '{print $1}')
+        . "$CFG_PATH" >/dev/null 2>&1
+        if [ "$CORE_TYPE" = "singbox" ]; then
+            provider_temp_file="$provider_temp_singbox"
         else
-            provider_temp_file=$(grep "provider_temp_${CORE_TYPE}" "$CRASHDIR"/configs/ShellCrash.cfg | awk -F '=' '{print $2}')
-            provider_temp_des=$(grep "$provider_temp_file" "$CRASHDIR"/configs/"${CORE_TYPE}"_providers.list | awk '{print $1}')
-            [ -z "$provider_temp_des" ] && provider_temp_des=$provider_temp_file
+            provider_temp_file="$provider_temp_clash"
+        fi
+        if [ -z "$provider_temp_file" ]; then
+            provider_temp_des=$(sed -n "1p" "$CRASHDIR"/configs/"${CORE_TYPE}"_providers.list | awk '{print $1}')
+        else
+            provider_temp_des=$(awk -v f="$provider_temp_file" '$2 == f {print $1; exit}' "$CRASHDIR"/configs/"${CORE_TYPE}"_providers.list 2>/dev/null)
+            [ -z "$provider_temp_des" ] && provider_temp_des="$provider_temp_file"
         fi
 
         comp_box "1) \033[32m$PROVIDERS_MENU_GEN\033[0m" \
@@ -59,7 +64,7 @@ providers() {
                 read -r -p "$PROVIDERS_TEMPLATE_PATH> " dir
                 if [ -s "$dir" ]; then
                     provider_temp_file=$dir
-                    if setconfig provider_temp_"$CORE_TYPE" "$provider_temp_file"; then
+                    if setconfig_quote provider_temp_"$CORE_TYPE" "$provider_temp_file"; then
                         common_success
                     else
                         common_failed
@@ -68,17 +73,20 @@ providers() {
                     msg_alert "\033[31m$PROVIDERS_TEMPLATE_NOT_FOUND\033[0m"
                 fi
                 ;;
-            *)
-                provider_temp_file=$(sed -n "$num p" "$CRASHDIR"/configs/"${CORE_TYPE}"_providers.list 2>/dev/null | awk '{print $2}')
+            [1-9] | [1-9][0-9])
+                provider_temp_file=$(sed -n "${num}p" "$CRASHDIR"/configs/"${CORE_TYPE}"_providers.list 2>/dev/null | awk '{print $2}')
                 if [ -z "$provider_temp_file" ]; then
                     errornum
                 else
-                    if setconfig provider_temp_"$CORE_TYPE" "$provider_temp_file"; then
+                    if setconfig_quote provider_temp_"$CORE_TYPE" "$provider_temp_file"; then
                         common_success
                     else
                         common_failed
                     fi
                 fi
+                ;;
+            *)
+                errornum
                 ;;
             esac
             ;;

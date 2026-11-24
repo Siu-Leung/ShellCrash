@@ -128,14 +128,14 @@ set_fw_wan() {
                 read -r -p "$GW_INPUT_ALLOW_PORT> " port
                 if echo ",$fw_wan_ports," | grep -q ",$port,"; then
                     msg_alert "\033[31m$GW_ERR_DUP_PORT\033[0m"
-                elif [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; then
+                elif ! echo "$port" | grep -Eq '^[0-9]+$' || [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; then
                     msg_alert "\033[31m$GW_ERR_PORT_RANGE\033[0m"
                 else
                     fw_wan_ports=$(echo "$fw_wan_ports,$port" | sed "s/^,//")
                     if setconfig fw_wan_ports "$fw_wan_ports"; then
                         common_success
                     else
-                        common_faileds
+                        common_failed
                     fi
                 fi
             fi
@@ -147,15 +147,13 @@ set_fw_wan() {
                 read -r -p "$GW_INPUT_PLAIN> " port
                 if [ "$port" = 0 ]; then
                     break
+                elif ! echo "$port" | grep -Eq '^[0-9]+$' || [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; then
+                    msg_alert "\033[31m$GW_ERR_INPUT\033[0m" \
+                        "\033[31m$GW_ERR_PORT_RANGE\033[0m"
                 elif echo ",$fw_wan_ports," | grep -q ",$port,"; then
-                    if [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; then
-                        msg_alert "\033[31m$GW_ERR_INPUT\033[0m" \
-                            "\033[31m$GW_ERR_PORT_RANGE\033[0m"
-                    else
-                        fw_wan_ports=$(echo ",$fw_wan_ports," | sed "s/,$port//; s/^,//; s/,$//")
-                        setconfig fw_wan_ports "$fw_wan_ports"
-                        break
-                    fi
+                    fw_wan_ports=$(echo ",$fw_wan_ports," | sed "s/,$port//; s/^,//; s/,$//")
+                    setconfig fw_wan_ports "$fw_wan_ports"
+                    break
                 else
                     msg_alert "\033[31m$GW_ERR_INPUT\033[0m" \
                         "\033[31m$GW_ERR_PORT_NOT_FOUND\033[0m"
@@ -176,7 +174,7 @@ set_fw_wan() {
 
 # tg_BOT相关
 set_bot_tg_config() {
-    setconfig TG_TOKEN "$TOKEN" "$GT_CFG_PATH"
+    setconfig_quote TG_TOKEN "$TOKEN" "$GT_CFG_PATH"
     setconfig TG_CHATID "$chat_ID" "$GT_CFG_PATH"
     # 设置机器人快捷命令
     JSON=$(
@@ -271,7 +269,6 @@ set_bot_tg() {
                 TG_menupush=ON
             fi
             setconfig TG_menupush "$TG_menupush" "$GT_CFG_PATH"
-            set_bot_tg
             ;;
         *)
             errornum
@@ -341,7 +338,7 @@ set_vmess() {
                 setconfig vms_ws_path "" "$GT_CFG_PATH"
             elif echo "$text" | grep -qE '^/'; then
                 vms_ws_path="$text"
-                setconfig vms_ws_path "$text" "$GT_CFG_PATH"
+                setconfig_quote vms_ws_path "$text" "$GT_CFG_PATH"
             else
                 msg_alert "\033[31m$GW_ERR_WSPATH\033[0m"
             fi
@@ -372,7 +369,7 @@ set_vmess() {
                 setconfig vms_host "" "$GT_CFG_PATH"
             else
                 vms_host="$text"
-                setconfig vms_host "$text" "$GT_CFG_PATH"
+                setconfig_quote vms_host "$text" "$GT_CFG_PATH"
             fi
             ;;
         7)
@@ -513,7 +510,7 @@ set_shadowsocks() {
                 ;;
             esac
             setconfig sss_cipher "$sss_cipher" "$GT_CFG_PATH"
-            setconfig sss_pwd "$sss_pwd" "$GT_CFG_PATH"
+            setconfig_quote sss_pwd "$sss_pwd" "$GT_CFG_PATH"
             ;;
         4)
             if echo "$sss_cipher" | grep -q '2022-blake3'; then
@@ -522,7 +519,7 @@ set_shadowsocks() {
                 line_break
                 read -r -p "$GW_INPUT_PWD_DEL0> " text
                 [ "$text" = 0 ] && sss_pwd='' || sss_pwd="$text"
-                setconfig sss_pwd "$text" "$GT_CFG_PATH"
+                setconfig_quote sss_pwd "$sss_pwd" "$GT_CFG_PATH"
             fi
             ;;
         5)
@@ -576,7 +573,7 @@ set_tailscale() {
             line_break
             read -r -p "$GW_TS_INPUT_KEY> " text
             [ "$text" = 0 ] && unset ts_auth_key ts_auth_key_info || ts_auth_key="$text"
-            setconfig ts_auth_key "$ts_auth_key" "$GT_CFG_PATH"
+            setconfig_quote ts_auth_key "$ts_auth_key" "$GT_CFG_PATH"
             ;;
         3)
             [ "$ts_subnet" = true ] && ts_subnet=false || ts_subnet=true
@@ -596,7 +593,7 @@ set_tailscale() {
                 "$GW_INPUT_0_BACK"
             read -r -p "$GW_INPUT_PLAIN> " ts_hostname
             if [ "$ts_hostname" != 0 ]; then
-                setconfig ts_hostname "$ts_hostname" "$GT_CFG_PATH"
+                setconfig_quote ts_hostname "$ts_hostname" "$GT_CFG_PATH"
             fi
             ;;
         *)
@@ -652,38 +649,42 @@ set_wireguard() {
                 msg_alert "\033[31m$GW_FILL_REQUIRED\033[0m"
             fi
             ;;
-        [1-8])
+        [2-8])
             line_break
             read -r -p "$GW_INPUT_TEXT_DEL0> " text
             [ "$text" = 0 ] && text=''
             case "$num" in
             2)
                 wg_server="$text"
-                setconfig wg_server "$text" "$GT_CFG_PATH"
+                setconfig_quote wg_server "$text" "$GT_CFG_PATH"
                 ;;
             3)
-                wg_port="$text"
-                setconfig wg_port "$text" "$GT_CFG_PATH"
+                if [ -z "$text" ] || { echo "$text" | grep -Eq '^[0-9]+$' && [ "$text" -ge 1 ] && [ "$text" -le 65535 ]; }; then
+                    wg_port="$text"
+                    setconfig wg_port "$text" "$GT_CFG_PATH"
+                else
+                    msg_alert "\033[31m$GW_ERR_PORT_RANGE\033[0m"
+                fi
                 ;;
             4)
                 wg_public_key="$text"
-                setconfig wg_public_key "$text" "$GT_CFG_PATH"
+                setconfig_quote wg_public_key "$text" "$GT_CFG_PATH"
                 ;;
             5)
                 wg_pre_shared_key="$text"
-                setconfig wg_pre_shared_key "$text" "$GT_CFG_PATH"
+                setconfig_quote wg_pre_shared_key "$text" "$GT_CFG_PATH"
                 ;;
             6)
                 wg_private_key="$text"
-                setconfig wg_private_key "$text" "$GT_CFG_PATH"
+                setconfig_quote wg_private_key "$text" "$GT_CFG_PATH"
                 ;;
             7)
                 wg_ipv4="$text"
-                setconfig wg_ipv4 "$text" "$GT_CFG_PATH"
+                setconfig_quote wg_ipv4 "$text" "$GT_CFG_PATH"
                 ;;
             8)
                 wg_ipv6="$text"
-                setconfig wg_ipv6 "$text" "$GT_CFG_PATH"
+                setconfig_quote wg_ipv6 "$text" "$GT_CFG_PATH"
                 ;;
             esac
             ;;

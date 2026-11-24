@@ -121,8 +121,8 @@ setrules() {
         read -r -p "$OVR_INPUT_NUM" num
         case "$num" in
         "" | 0) ;;
-        [0-9]*)
-            if [ "$num" -gt $(echo $rule_type | awk -F " " '{print NF}') ]; then
+        *)
+            if ! echo "$num" | grep -Eq '^[1-9][0-9]*$' || [ "$num" -gt "$(echo "$rule_type" | awk -F " " '{print NF}')" ]; then
                 errornum
             else
                 rule_type_set=$(echo "$rule_type" | cut -d' ' -f"$num")
@@ -135,9 +135,6 @@ setrules() {
                     errornum
                 fi
             fi
-            ;;
-        *)
-            errornum
             ;;
         esac
     }
@@ -155,8 +152,8 @@ setrules() {
         read -r -p "$OVR_INPUT_NUM" num
         case "$num" in
         "" | 0) ;;
-        [0-9]*)
-            if [ "$num" -gt "$(echo "$rule_group" | awk -F "#" '{print NF}')" ]; then
+        *)
+            if ! echo "$num" | grep -Eq '^[1-9][0-9]*$' || [ "$num" -gt "$(echo "$rule_group" | awk -F "#" '{print NF}')" ]; then
                 errornum
             else
                 rule_group_set=$(echo "$rule_group" | cut -d'#' -f"$num")
@@ -165,9 +162,6 @@ setrules() {
                 echo "$rule_all" >>"$YAMLSDIR"/rules.yaml
                 msg_alert "\033[32m$OVR_RULES_ADD_OK\033[0m"
             fi
-            ;;
-        *)
-            errornum
             ;;
         esac
     }
@@ -188,7 +182,7 @@ setrules() {
                 break
                 ;;
             *)
-                if [ "$num" -le "$(wc -l <"$YAMLSDIR"/rules.yaml)" ]; then
+                if echo "$num" | grep -Eq '^[1-9][0-9]*$' && [ "$num" -le "$(wc -l <"$YAMLSDIR"/rules.yaml)" ]; then
                     if sed -i "${num}d" "$YAMLSDIR"/rules.yaml; then
                         common_success
                     else
@@ -303,14 +297,22 @@ setgroups() {
             done
         separator_line "="
         read -r -p "$OVR_GROUPS_INPUT_NUM" num
-        new_group_type=$(echo "$group_type" | awk '{print $'"$num"'}')
+        if ! echo "$num" | grep -Eq '^[1-4]$'; then
+            errornum
+            return 1
+        fi
+        new_group_type=$(echo "$group_type" | awk -v n="$num" '{print $n}')
         if [ "$num" = "1" ]; then
             unset new_group_url interval
         else
             comp_box "$OVR_GROUPS_URL" \
                 "$OVR_GROUPS_URL_HINT"
             read -r -p "$OVR_PROMPT" new_group_url
-            [ -z "$new_group_url" ] && new_group_url=https://www.gstatic.com/generate_204
+            if [ -z "$new_group_url" ]; then
+                new_group_url=https://www.gstatic.com/generate_204
+            else
+                ovr_input_safe "$new_group_url" || return 1
+            fi
             new_group_url="url: '$new_group_url'"
             interval="interval: 300"
         fi
@@ -348,10 +350,13 @@ EOF
         case "$char" in
         "" | 0) ;;
         *)
+            set -f
             for num in $char; do
+                echo "$num" | grep -Eq '^[1-9][0-9]*$' || continue
                 rule_group_set=$(echo "$proxy_group" | cut -d'#' -f"$num")
-                rule_group_add="${rule_group_add}#${rule_group_set}"
+                [ -n "$rule_group_set" ] && rule_group_add="${rule_group_add}#${rule_group_set}"
             done
+            set +f
             if [ -n "$rule_group_add" ]; then
                 new_group_name="$new_group_name$rule_group_add"
                 unset rule_group_add
@@ -460,10 +465,13 @@ setproxies() {
         case "$char" in
         "" | 0) ;;
         *)
+            set -f
             for num in $char; do
+                echo "$num" | grep -Eq '^[1-9][0-9]*$' || continue
                 rule_group_set=$(echo "$proxy_group" | cut -d'#' -f"$num")
-                rule_group_add="${rule_group_add}#${rule_group_set}"
+                [ -n "$rule_group_set" ] && rule_group_add="${rule_group_add}#${rule_group_set}"
             done
+            set +f
             if [ -n "$rule_group_add" ]; then
                 echo "- {$proxy_state_set}$rule_group_add" >>"$YAMLSDIR"/proxies.yaml
                 msg_alert "\033[32m$OVR_PROXIES_ADD_OK\033[0m"
@@ -510,7 +518,7 @@ setproxies() {
                 read -r -p "$OVR_INPUT_NUM" num
                 if [ "$num" = 0 ]; then
                     continue
-                elif [ "$num" -le $(cat "$YAMLSDIR"/proxies.yaml | grep -Ev '^#' | wc -l) ]; then
+                elif echo "$num" | grep -Eq '^[1-9][0-9]*$' && [ "$num" -le "$(grep -Ev '^#' "$YAMLSDIR"/proxies.yaml | wc -l)" ]; then
                     # 修正 D：同上，\s -> [[:space:]]
                     if sed -i "$num{/^[[:space:]]*[^#]/d}" "$YAMLSDIR"/proxies.yaml; then
                         common_success

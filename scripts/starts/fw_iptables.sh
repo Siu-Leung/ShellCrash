@@ -162,8 +162,9 @@ start_ipt_wan() { #iptables公网防火墙
         $iptable -I INPUT -p "$1" -m multiport --dports "$reject_ports" -j REJECT
         ckcmd ip6tables && $ip6table -I INPUT -p "$1" -m multiport --dports "$reject_ports" -j REJECT
     }
-    #端口拦截
-    reject_ports="$mix_port,$db_port"
+    #端口拦截（安全加固：同步拦截 DNS 与透明代理端口防公网暴露）
+    _reject_dns="${dns_port:-${dns_redir_port:-1053}}"
+    reject_ports="${mix_port:-7890},${db_port:-9999},$_reject_dns,${redir_port:-7892},${tproxy_port:-7893}"
     ipt_wan_reject tcp
     ipt_wan_reject udp
     #端口放行

@@ -126,12 +126,12 @@ setboot() {
                         continue
                     fi
                 else
-                    rm -rf /tmp/ShellCrash
+                    [ "$BINDIR" != "$CRASHDIR" ] && [ -n "$BINDIR" ] && [ "$BINDIR" != "/" ] && rm -rf "$BINDIR"/CrashCore*
                     BINDIR="$CRASHDIR"
                     msg_alert "\033[33m$SETBOOT_MINI_DISABLED\033[0m"
                 fi
             fi
-            sed -i "s#BINDIR=.*#BINDIR=$BINDIR#" "$CRASHDIR"/configs/directories.env
+            setconfig_quote BINDIR "$BINDIR" "$CRASHDIR"/configs/directories.env
             sleep 1
             ;;
         5)
@@ -155,8 +155,8 @@ setboot() {
                     set_usb_dir() {
                         while true; do
                             comp_box "$SETBOOT_SELECT_INSTALL_DIR"
-                            du -hL -d 2 /mnt |
-                                awk '{print NR") "$2"  ($SETBOOT_SPACE_USED"$1"）"}' |
+                            du -hL -d 2 /mnt 2>/dev/null |
+                                awk -v used="$SETBOOT_SPACE_USED" '{print NR") "$2"  (" used $1 "）"}' |
                                 while IFS= read -r line; do
                                     content_line "$line"
                                 done
@@ -164,14 +164,15 @@ setboot() {
                             content_line "0) $COMMON_BACK"
                             separator_line "="
                             read -r -p "$COMMON_INPUT> " num
-                            BINDIR=$(du -hL -d 2 /mnt | awk '{print $2}' | sed -n "$num"p)
-                            if [ "$num" = 0 ]; then
+                            if [ "$num" = 0 ] || [ -z "$num" ]; then
                                 return 1
-                            elif [ -z "$BINDIR" ]; then
-                                msg_alert "\033[31m$SETBOOT_INPUT_ERROR\033[0m"
-                            else
-                                return 0
+                            elif echo "$num" | grep -Eq '^[1-9][0-9]*$'; then
+                                BINDIR=$(du -hL -d 2 /mnt 2>/dev/null | awk '{print $2}' | sed -n "${num}p")
+                                if [ -n "$BINDIR" ] && [ -d "$BINDIR" ]; then
+                                    return 0
+                                fi
                             fi
+                            msg_alert "\033[31m$SETBOOT_INPUT_ERROR\033[0m"
                         done
                     }
                     set_usb_dir
@@ -185,12 +186,13 @@ setboot() {
                             comp_box "\033[36m$SETBOOT_INPUT_CMD\033[0m" \
                                 "$SETBOOT_INPUT_OR_BACK"
                             read -r -p "$SETBOOT_INPUT> " BINDIR
-                            if [ "$BINDIR" = 0 ]; then
+                            if [ "$BINDIR" = 0 ] || [ -z "$BINDIR" ]; then
                                 return 1
                             elif [ ! -d "$BINDIR" ]; then
                                 msg_alert "\033[31m$SETBOOT_INPUT_ERROR\033[0m"
+                            else
+                                return 0
                             fi
-                            return 0
                         done
                     }
                     input_dir
@@ -203,7 +205,7 @@ setboot() {
                     continue
                     ;;
                 esac
-                sed -i "s#BINDIR=.*#BINDIR=$BINDIR#" "$CRASHDIR"/configs/directories.env
+                setconfig_quote BINDIR "$BINDIR" "$CRASHDIR"/configs/directories.env
                 break
             done
             ;;

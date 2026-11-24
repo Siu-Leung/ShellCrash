@@ -8,7 +8,16 @@ ddns_menu() {
     load_ddns
 }
 
+_ddns_uci_clean() {
+    printf '%s' "$1" | tr -d "'\\r\\n"
+}
+
 add_ddns() {
+    domain=$(_ddns_uci_clean "$domain")
+    username=$(_ddns_uci_clean "$username")
+    password=$(_ddns_uci_clean "$password")
+    service=$(_ddns_uci_clean "$service")
+    service_name=$(_ddns_uci_clean "$service_name")
     cat >>"$ddns_dir" <<EOF
 
 config service '$service'
@@ -18,7 +27,7 @@ config service '$service'
     option service_name '$service_name'
     option domain '$domain'
     option username '$username'
-    option use_https '0'
+    option use_https '1'
     option use_ipv6 '$use_ipv6'
     option password '$password'
     option ip_source 'web'
@@ -46,10 +55,12 @@ set_ddns() {
         [ -z "$str" ] && password="$password" || password="$str"
         echo ""
         read -r -p "$DDNS_INPUT_CHECK_INTERVAL> " check_interval
-        [ -z "$check_interval" ] || [ "$check_interval" -lt 1 -o "$check_interval" -gt 1440 ] && check_interval=10
+        case "$check_interval" in '' | *[!0-9]*) check_interval=10 ;; esac
+        [ "$check_interval" -lt 1 -o "$check_interval" -gt 1440 ] && check_interval=10
         echo ""
         read -r -p "$DDNS_INPUT_FORCE_INTERVAL> " force_interval
-        [ -z "$force_interval" ] || [ "$force_interval" -lt 1 -o "$force_interval" -gt 240 ] && force_interval=24
+        case "$force_interval" in '' | *[!0-9]*) force_interval=24 ;; esac
+        [ "$force_interval" -lt 1 -o "$force_interval" -gt 240 ] && force_interval=24
 
         comp_box "$DDNS_CONFIRM_INFO" \
             "" \
@@ -88,8 +99,8 @@ set_ddns_service() {
         if [ -z "$num" ] || [ "$num" = 0 ]; then
             i=
             break
-        elif [ "$num" -gt 0 ] && [ "$num" -lt "$nr" ]; then
-            service_name=$(echo "$list" | sed -n "$num"p | sed 's/"//g')
+        elif printf '%s' "$num" | grep -qE '^[0-9]+$' && [ "$num" -gt 0 ] && [ "$num" -le "$nr" ]; then
+            service_name=$(echo "$list" | sed -n "${num}p" | sed 's/"//g')
             service=$(echo "$service_name" | sed 's/\./_/g')
             set_ddns
             break
@@ -214,10 +225,12 @@ load_ddns() {
             i=
             rm -rf "$tmp_dir"
             break
-        elif [ "$num" -gt $nr ]; then
+        elif ! printf '%s' "$num" | grep -qE '^[0-9]+$'; then
+            msg_alert "\033[33m$DDNS_INPUT_NUM_ERROR\033[0m"
+        elif [ "$num" -gt "$nr" ]; then
             set_ddns_type
-        elif [ "$num" -gt 0 ] && [ "$num" -le $nr ]; then
-            service=$(cat "$tmp_dir" | sed -n "$num"p)
+        elif [ "$num" -gt 0 ] && [ "$num" -le "$nr" ]; then
+            service=$(sed -n "${num}p" "$tmp_dir")
             rev_ddns_service
         else
             msg_alert "\033[33m$DDNS_INPUT_NUM_ERROR\033[0m"

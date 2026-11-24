@@ -26,6 +26,12 @@ afstart(){
 stop_firewall(){
     "$CRASHDIR"/starts/fw_stop.sh
 }
+start_firewall(){
+    . "$CRASHDIR"/starts/fw_start.sh
+}
+is_root_user() {
+    [ "$(id -u 2>/dev/null)" = "0" ] || [ "$USER" = "root" ]
+}
 #保守模式启动
 start_l(){
     bfstart && {
@@ -49,7 +55,7 @@ start)
         start_l
     elif [ -f /etc/rc.common ] && grep -q 'procd' /proc/1/comm; then
         /etc/init.d/shellcrash start
-    elif [ "$USER" = "root" ] && grep -q 'systemd' /proc/1/comm; then
+    elif is_root_user && grep -q 'systemd' /proc/1/comm; then
         FragmentPath=$(systemctl show -p FragmentPath shellcrash | sed 's/FragmentPath=//')
         [ -f "$FragmentPath" ] && {
             sed -i "s#^ExecStart=.*#ExecStart=$COMMAND >/dev/null#" "$FragmentPath"
@@ -80,7 +86,7 @@ stop)
         kill -TERM "$(cat "$TMPDIR/shellcrash.pid")" 2>/dev/null
         rm -f "$TMPDIR/shellcrash.pid"
         stop_firewall
-    elif [ "$USER" = "root" ] && grep -q 'systemd' /proc/1/comm; then
+    elif is_root_user && grep -q 'systemd' /proc/1/comm; then
         systemctl stop shellcrash.service >/dev/null 2>&1
     elif [ -f /etc/rc.common ] && grep -q 'procd' /proc/1/comm; then
         /etc/init.d/shellcrash stop >/dev/null 2>&1
@@ -103,10 +109,10 @@ init)
     . "$CRASHDIR"/starts/general_init.sh
     ;;
 daemon)
-    if [ -f $TMPDIR/crash_start_time ]; then
-        $0 start
+    if [ -f "$TMPDIR"/crash_start_time ]; then
+        "$0" start
     else
-        sleep 60 && touch $TMPDIR/crash_start_time
+        sleep 60 && touch "$TMPDIR"/crash_start_time
     fi
     ;;
 debug)
@@ -116,10 +122,14 @@ debug)
     stop_firewall >/dev/null                          #清理路由策略
     bfstart
     if [ -n "$2" ]; then
+        case "$2" in
+            debug|info|warning|warn|error|silent|fatal|panic|trace) _dbg_lvl="$2" ;;
+            *) _dbg_lvl="debug" ;;
+        esac
         if echo "$crashcore" | grep -q 'singbox'; then
-            sed -i "s/\"level\": \"info\"/\"level\": \"$2\"/" "$TMPDIR"/jsons/log.json 2>/dev/null
+            sed -i "s/\"level\": \"info\"/\"level\": \"$_dbg_lvl\"/" "$TMPDIR"/jsons/log.json 2>/dev/null
         else
-            sed -i "s/log-level: info/log-level: $2/" "$TMPDIR"/config.yaml
+            sed -i "s/log-level: info/log-level: $_dbg_lvl/" "$TMPDIR"/config.yaml
         fi
         [ "$3" = flash ] && dir="$CRASHDIR" || dir="$TMPDIR"
         $COMMAND >"$dir"/debug.log 2>&1 &
@@ -130,8 +140,24 @@ debug)
     fi
     afstart
     ;;
+bfstart)
+    bfstart
+    ;;
+afstart)
+    afstart
+    ;;
+stop_firewall)
+    stop_firewall
+    ;;
+start_firewall)
+    start_firewall
+    ;;
+cronset)
+    cronset "$2" "$3"
+    ;;
 *)
-    "$1" "$2" "$3" "$4" "$5" "$6" "$7"
+    echo "Unsupported start.sh command: $1" >&2
+    exit 1
     ;;
 
 esac

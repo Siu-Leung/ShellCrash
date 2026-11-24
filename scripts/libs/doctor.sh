@@ -39,13 +39,24 @@ run_doctor() {
         _doc_warn "TLS 证书校验已关闭 (skip_cert=$skip_cert)，存在中间人风险"
     fi
     if [ "$firewall_area" = "4" ] && [ "$public_support" != "ON" ]; then
-        _doc_ok "纯净模式监听已收敛至 127.0.0.1 (mix=$mix_port, panel=$db_port)"
+        _doc_ok "纯净模式监听已收敛至 127.0.0.1 (mix=$mix_port, dns=$dns_port, panel=$db_port)"
     else
         if [ -n "$secret" ]; then
             _doc_ok "面板监听端口 $db_port 已设置访问密钥"
         else
             _doc_warn "面板监听端口 $db_port 未设置访问密钥 (secret 为空)"
         fi
+    fi
+    if [ "$bot_tg_service" = "ON" ]; then
+        [ -f "$CRASHDIR/configs/gateway.cfg" ] && . "$CRASHDIR/configs/gateway.cfg" 2>/dev/null
+        if echo "$TG_CHATID" | grep -Eq '^-?[0-9]+$' && echo "$TG_TOKEN" | grep -Eq '^[0-9]+:[A-Za-z0-9_-]{20,}$'; then
+            _doc_ok "自建 Telegram Bot 凭证与 Chat ID 校验正常"
+        else
+            _doc_warn "Telegram Bot 已启用但 TG_TOKEN/TG_CHATID 缺失或格式非法"
+        fi
+    fi
+    if [ "$push_TG" = "publictoken" ]; then
+        _doc_warn "检测到旧版 publictoken 推送配置（已弃用），请更换为自建 Bot Token"
     fi
 
     # 4. 本地订阅与配置状态

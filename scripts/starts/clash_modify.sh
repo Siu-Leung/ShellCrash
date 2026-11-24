@@ -30,10 +30,15 @@ prepare_clash_base_config() {
     #dns配置
     [ -z "$(cat "$CRASHDIR"/yamls/user.yaml 2>/dev/null | grep '^dns:')" ] && {
         [ "$crashcore" != meta ] && dns_resolver='223.5.5.5'
+        if [ "$firewall_area" = "4" ] && [ "$public_support" != "ON" ]; then
+            _dns_listen="127.0.0.1:$dns_port"
+        else
+            _dns_listen=":$dns_port"
+        fi
         cat >"$TMPDIR"/dns.yaml <<EOF
 dns:
   enable: true
-  listen: :$dns_port
+  listen: $_dns_listen
   use-hosts: true
   ipv6: $dns_v6
   default-nameserver: [ $dns_resolver ]
@@ -107,12 +112,14 @@ generate_set_and_hosts_yaml() {
         _allow_lan='true'
         _ext_ctrl=":$db_port"
     fi
+    _esc_auth=$(printf '%s' "$authentication" | sed 's/\\/\\\\/g; s/"/\\"/g')
+    _esc_secret=$(printf '%s' "$secret" | sed 's/\\/\\\\/g; s/"/\\"/g')
     #生成set.yaml
     cat >"$TMPDIR"/set.yaml <<EOF
 mixed-port: $mix_port
 redir-port: $redir_port
 tproxy-port: $tproxy_port
-authentication: ["$authentication"]
+authentication: ["$_esc_auth"]
 allow-lan: $_allow_lan
 mode: Rule
 log-level: info
@@ -120,7 +127,7 @@ ipv6: true
 external-controller: $_ext_ctrl
 external-ui: ui
 external-ui-url: "$external_ui_url"
-secret: $secret
+secret: "$_esc_secret"
 $tun
 $exper
 $sniffer_set
@@ -164,9 +171,12 @@ split_and_customize_yaml_parts() {
             sed -n 's/^proxies:[[:space:]]*\[\(.*\)\][[:space:]]*$/  - \1/p' "$core_config" >"$TMPDIR"/proxies.yaml
         fi
     done
-    #跳过本地tls证书验证
-    [ "$skip_cert" != "OFF" ] && sed -i 's/skip-cert-verify: false/skip-cert-verify: true/' "$TMPDIR"/proxies.yaml ||
-        sed -i 's/skip-cert-verify: true/skip-cert-verify: false/' "$TMPDIR"/proxies.yaml
+    #跳过本地tls证书验证（安全加固：fail-closed，仅显式 skip_cert=ON 时跳过，并同步覆盖 proxy-providers）
+    if [ "$skip_cert" = "ON" ]; then
+        sed -i 's/skip-cert-verify: false/skip-cert-verify: true/g' "$TMPDIR"/proxies.yaml "$TMPDIR"/proxy-providers.yaml 2>/dev/null
+    else
+        sed -i 's/skip-cert-verify: true/skip-cert-verify: false/g' "$TMPDIR"/proxies.yaml "$TMPDIR"/proxy-providers.yaml 2>/dev/null
+    fi
     #插入自定义策略组
     sed -i "/#自定义策略组开始/,/#自定义策略组结束/d" "$TMPDIR"/proxy-groups.yaml
     sed -i "/#自定义策略组/d" "$TMPDIR"/proxy-groups.yaml
@@ -229,8 +239,8 @@ add_custom_inbounds_and_rules() {
     #节点绕过功能支持
     sed -i "/#节点绕过/d" "$TMPDIR"/rules.yaml
     [ "$proxies_bypass" = "ON" ] && {
-        cat "$TMPDIR"/proxies.yaml | sed '/^proxy-/,$d' | sed '/^rule-/,$d' | grep -v '^\s*#' | grep -oE '[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}' | awk '!a[$0]++' | sed 's/^/\ -\ IP-CIDR,/g' | sed 's|$|/32,DIRECT,no-resolve #节点绕过|g' >>"$TMPDIR"/proxies_bypass
-        cat "$TMPDIR"/proxies.yaml | sed '/^proxy-/,$d' | sed '/^rule-/,$d' | grep -v '^\s*#' | grep -vE '[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}' | grep -oE '[a-zA-Z0-9][-a-zA-Z0-9]{0,62}(\.[a-zA-Z0-9][-a-zA-Z0-9]{0,62})+\.?' | awk '!a[$0]++' | sed 's/^/\ -\ DOMAIN,/g' | sed 's/$/,DIRECT #节点绕过/g' >>"$TMPDIR"/proxies_bypass
+        cat "$TMPDIR"/proxies.yaml | sed '/^proxy-/,$d' | sed '/^rule-/,$d' | grep -v '^[[:space:]]*#' | grep -oE '[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}' | awk '!a[$0]++' | sed 's/^/\ -\ IP-CIDR,/g' | sed 's|$|/32,DIRECT,no-resolve #节点绕过|g' >>"$TMPDIR"/proxies_bypass
+        cat "$TMPDIR"/proxies.yaml | sed '/^proxy-/,$d' | sed '/^rule-/,$d' | grep -v '^[[:space:]]*#' | grep -vE '[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}' | grep -oE '[a-zA-Z0-9][-a-zA-Z0-9]{0,62}(\.[a-zA-Z0-9][-a-zA-Z0-9]{0,62})+\.?' | awk '!a[$0]++' | sed 's/^/\ -\ DOMAIN,/g' | sed 's/$/,DIRECT #节点绕过/g' >>"$TMPDIR"/proxies_bypass
         cat "$TMPDIR"/rules.yaml >>"$TMPDIR"/proxies_bypass
         mv -f "$TMPDIR"/proxies_bypass "$TMPDIR"/rules.yaml
     }

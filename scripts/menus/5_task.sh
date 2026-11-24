@@ -31,11 +31,17 @@ set_cron() {
     sleep 1
 }
 
+_task_strip_line() {
+    # 使用 ENVIRON 精确子串过滤，避免任务描述中的 / 或正则元字符破坏 sed 语法
+    [ -s "$1" ] || return 0
+    TASK_DEL_KEY="$2" awk 'index($0, ENVIRON["TASK_DEL_KEY"]) == 0' "$1" >"$1.tmp" && mv -f "$1.tmp" "$1"
+}
+
 set_service() {
     # 参数1代表要任务类型,参数2代表任务ID,参数3代表任务描述,参数4代表running任务cron时间
     mkdir -p "$TASKCFGDIR"
     task_file="$TASKCFGDIR"/$1
-    [ -s "$task_file" ] && sed -i "/$3/d" "$task_file"
+    _task_strip_line "$task_file" "$3"
     # 运行时每分钟执行的任务特殊处理
     if [ "$1" = "running" ]; then
         task_txt="$4 $CRASHDIR/task/task.sh $2 \"$3\""
@@ -95,7 +101,7 @@ task_user_del() {
             read -r -p "$COMMON_INPUT> " num
             if [ "$num" = 0 ]; then
                 break
-            elif [ -n "$num" ]; then
+            elif echo "$num" | grep -Eq '^[0-9]+$'; then
                 sed -i "/^$num#/d" "$TASKCFGDIR"/task.user 2>/dev/null
                 common_success
             else
@@ -124,8 +130,8 @@ task_add() {
             ;;
         [1-9] | [1-9][0-9])
             if [ "$num" -le "$(echo "$list" | wc -l)" ]; then
-                task_id=$(cat "$CRASHDIR"/task/task_${i18n}.list "$TASKCFGDIR"/task.user 2>/dev/null | grep -Ev '^(#|$)' | sed -n "$num p" | awk -F '#' '{print $1}')
-                task_name=$(cat "$CRASHDIR"/task/task_${i18n}.list "$TASKCFGDIR"/task.user 2>/dev/null | grep -Ev '^(#|$)' | sed -n "$num p" | awk -F '#' '{print $3}')
+                task_id=$(cat "$CRASHDIR"/task/task_${i18n}.list "$TASKCFGDIR"/task.user 2>/dev/null | grep -Ev '^(#|$)' | sed -n "${num}p" | awk -F '#' '{print $1}')
+                task_name=$(cat "$CRASHDIR"/task/task_${i18n}.list "$TASKCFGDIR"/task.user 2>/dev/null | grep -Ev '^(#|$)' | sed -n "${num}p" | awk -F '#' '{print $3}')
                 task_type
                 break
             else
@@ -144,11 +150,9 @@ task_del() {
     # 删除定时任务
     cronset "$1"
     # 删除条件任务
-    [ -f "$TASKCFGDIR"/cron ] && sed -i "/$1/d" "$TASKCFGDIR"/cron 2>/dev/null
-    [ -f "$TASKCFGDIR"/bfstart ] && sed -i "/$1/d" "$TASKCFGDIR"/bfstart 2>/dev/null
-    [ -f "$TASKCFGDIR"/afstart ] && sed -i "/$1/d" "$TASKCFGDIR"/afstart 2>/dev/null
-    [ -f "$TASKCFGDIR"/running ] && sed -i "/$1/d" "$TASKCFGDIR"/running 2>/dev/null
-    [ -f "$TASKCFGDIR"/affirewall ] && sed -i "/$1/d" "$TASKCFGDIR"/affirewall 2>/dev/null
+    for _tf in cron bfstart afstart running affirewall; do
+        _task_strip_line "$TASKCFGDIR/$_tf" "$1"
+    done
     return 0
 }
 
@@ -181,31 +185,47 @@ task_type() {
         read -r -p "$TASK5_WEEK_INPUT> " week
         # week=`echo ${week/7/0}` # 把7换成0
         read -r -p "$TASK5_HOUR_INPUT1> " hour
-        cron_time="$TASK5_CRON_WEEK$week$TASK5_CRON_WEEK2$hour$TASK5_OCLOCK"
-        # cron_time=`echo ${cron_time/周0/周日}` # 把0换成日
-        [ -n "$week" ] && [ -n "$hour" ] && set_cron
+        if echo "$week" | grep -Eq '^[0-7]([-,][0-7])*$' && echo "$hour" | grep -Eq '^([0-9]|1[0-9]|2[0-3])([-,]([0-9]|1[0-9]|2[0-3]))*$'; then
+            cron_time="$TASK5_CRON_WEEK$week$TASK5_CRON_WEEK2$hour$TASK5_OCLOCK"
+            # cron_time=`echo ${cron_time/周0/周日}` # 把0换成日
+            set_cron
+        else
+            msg_alert "\033[31m$TASK5_INPUT_ERROR\033[0m"
+        fi
         ;;
     2)
         comp_box "$TASK5_DAY_HINT1" \
             "$TASK5_DAY_HINT2"
         read -r -p "$TASK5_HOUR_INPUT2> " hour
         read -r -p "$TASK5_MIN_INPUT> " min
-        cron_time="$TASK5_CRON_DAY$hour$TASK5_POINT$min$TASK5_MINUTE"
-        [ -n "$min" ] && [ -n "$hour" ] && set_cron
+        if echo "$hour" | grep -Eq '^([0-9]|1[0-9]|2[0-3])([-,]([0-9]|1[0-9]|2[0-3]))*$' && echo "$min" | grep -Eq '^([0-9]|[1-5][0-9])$'; then
+            cron_time="$TASK5_CRON_DAY$hour$TASK5_POINT$min$TASK5_MINUTE"
+            set_cron
+        else
+            msg_alert "\033[31m$TASK5_INPUT_ERROR\033[0m"
+        fi
         ;;
     3)
         line_break
         read -r -p "$TASK5_EVERY_HOUR_INPUT> " num
-        hour="*/$num"
-        cron_time="$TASK5_EVERY$num$TASK5_HOUR"
-        [ -n "$hour" ] && set_cron
+        if echo "$num" | grep -Eq '^[0-9]+$' && [ "$num" -ge 1 ] && [ "$num" -le 23 ]; then
+            hour="*/$num"
+            cron_time="$TASK5_EVERY$num$TASK5_HOUR"
+            set_cron
+        else
+            msg_alert "\033[31m$TASK5_INPUT_ERROR\033[0m"
+        fi
         ;;
     4)
         line_break
         read -r -p "$TASK5_EVERY_MIN_INPUT> " num
-        min="*/$num"
-        cron_time="$TASK5_EVERY$num$TASK5_MIN"
-        [ -n "$min" ] && set_cron
+        if echo "$num" | grep -Eq '^[0-9]+$' && [ "$num" -ge 1 ] && [ "$num" -le 59 ]; then
+            min="*/$num"
+            cron_time="$TASK5_EVERY$num$TASK5_MIN"
+            set_cron
+        else
+            msg_alert "\033[31m$TASK5_INPUT_ERROR\033[0m"
+        fi
         ;;
     5)
         set_service bfstart "$task_id" "$TASK5_BFSTART$task_name"
@@ -217,16 +237,20 @@ task_type() {
         comp_box "$TASK5_RUNNING_HINT1" \
             "$TASK5_RUNNING_HINT2"
         read -r -p "$TASK5_RUNNING_INPUT> " num
-        if [ "$num" -lt 60 ]; then
-            min="$num"
-            cron_time="*/$min * * * *"
-            time_des="$min$TASK5_MIN"
+        if echo "$num" | grep -Eq '^[0-9]+$' && [ "$num" -ge 1 ] && [ "$num" -le 1440 ]; then
+            if [ "$num" -lt 60 ]; then
+                min="$num"
+                cron_time="*/$min * * * *"
+                time_des="$min$TASK5_MIN"
+            else
+                hour="$((num / 60))"
+                cron_time="0 */$hour * * *"
+                time_des="$hour$TASK5_HOUR"
+            fi
+            set_service running "$task_id" "$TASK5_RUNNING_PREFIX$time_des$task_name" "$cron_time"
         else
-            hour="$((num / 60))"
-            cron_time="0 */$hour * * *"
-            time_des="$hour$TASK5_HOUR"
+            msg_alert "\033[31m$TASK5_INPUT_ERROR\033[0m"
         fi
-        [ -n "$cron_time" ] && set_service running "$task_id" "$TASK5_RUNNING_PREFIX$time_des$task_name" "$cron_time"
         ;;
     8)
         comp_box "$TASK5_AFFW_HINT" \
@@ -249,7 +273,7 @@ task_manager() {
         cronload >"$TMPDIR"/task_cronlist
         cat "$TMPDIR"/task_cronlist "$TASKCFGDIR"/running 2>/dev/null | sort -u | grep -oE "task/task.sh .*" | cut -d ' ' -f 2- >"$TMPDIR"/task_list
         cat "$TASKCFGDIR"/bfstart "$TASKCFGDIR"/afstart "$TASKCFGDIR"/affirewall 2>/dev/null | cut -d ' ' -f 2- >>"$TMPDIR"/task_list
-        cat "$TMPDIR"/task_cronlist 2>/dev/null | sort -u | grep -oE " #.*" | grep -v "$TASK5_GUARD_WORD" | awk -F '#' '{print "0 '$TASK5_OLD_PREFIX'"$2}' >>"$TMPDIR"/task_list
+        cat "$TMPDIR"/task_cronlist 2>/dev/null | sort -u | grep -oE " #.*" | grep -v "$TASK5_GUARD_WORD" | awk -F '#' -v pfx="$TASK5_OLD_PREFIX" '{print "0 " pfx $2}' >>"$TMPDIR"/task_list
         sed -i '/^ *$/d' "$TMPDIR"/task_list
         rm -rf "$TMPDIR"/task_cronlist
         # 判断为空则返回
@@ -278,7 +302,7 @@ task_manager() {
                 msg_alert "\033[31m$TASK5_ALL_CLEARED\033[36m"
                 ;;
             [1-9] | [1-9][0-9])
-                task_txt=$(sed -n "$num p" "$TMPDIR"/task_list)
+                task_txt=$(sed -n "${num}p" "$TMPDIR"/task_list)
                 task_id=$(echo "$task_txt" | awk '{print $1}')
 
                 if [ "$task_id" = 0 ]; then
@@ -289,7 +313,7 @@ task_manager() {
                     if [ "$res" = 1 ]; then
                         cronname=$(echo "$task_txt" | awk -F '-' '{print $2}')
                         cronset "$cronname"
-                        sed -i "/$cronname/d" "$TASKCFGDIR"/cron 2>/dev/null
+                        _task_strip_line "$TASKCFGDIR/cron" "$cronname"
 
                         break
                     fi
@@ -298,7 +322,7 @@ task_manager() {
                     task_des=${task_des#"${task_des%%[! ]*}"}
                     task_des=${task_des#\"}
                     task_des=${task_des%\"}
-                    task_name=$(cat "$CRASHDIR"/task/task_${i18n}.list "$TASKCFGDIR"/task.user 2>/dev/null | grep "$task_id" | awk -F '#' '{print $3}')
+                    task_name=$(cat "$CRASHDIR"/task/task_${i18n}.list "$TASKCFGDIR"/task.user 2>/dev/null | awk -F '#' -v id="$task_id" '$1 == id {print $3; exit}')
                     comp_box "$TASK5_CURRENT_TASK\033[36m$task_des\033[0m"
                     btm_box "1) $TASK5_EDIT_TASK" \
                         "2) $TASK5_DEL_TASK" \
@@ -319,8 +343,7 @@ task_manager() {
                         common_success
                         ;;
                     3)
-                        task_command=$(cat "$CRASHDIR"/task/task_${i18n}.list "$TASKCFGDIR"/task.user 2>/dev/null | grep "$task_id" | awk -F '#' '{print $2}')
-                        eval "$task_command" && task_res="$TASK5_RUN_OK" || task_res="$TASK5_RUN_FAIL"
+                        "$CRASHDIR"/task/task.sh "$task_id" "$task_des" && task_res="$TASK5_RUN_OK" || task_res="$TASK5_RUN_FAIL"
                         msg_alert "\033[33m$TASK5_TASK_PREFIX$task_des】$task_res\033[0m"
                         ;;
                     4)

@@ -25,13 +25,16 @@ uninstall() {
                 "0) $UNINSTALL_NO"
             read -r -p "$COMMON_INPUT> " res
             if [ "$res" = '1' ]; then
-                mv -f "$CRASHDIR"/configs /tmp/ShellCrash/configs_bak
-                mv -f "$CRASHDIR"/yamls /tmp/ShellCrash/yamls_bak
-                mv -f "$CRASHDIR"/jsons /tmp/ShellCrash/jsons_bak
+                mkdir -p /tmp/ShellCrash
+                [ -d "$CRASHDIR"/configs ] && mv -f "$CRASHDIR"/configs /tmp/ShellCrash/configs_bak
+                [ -d "$CRASHDIR"/yamls ] && mv -f "$CRASHDIR"/yamls /tmp/ShellCrash/yamls_bak
+                [ -d "$CRASHDIR"/jsons ] && mv -f "$CRASHDIR"/jsons /tmp/ShellCrash/jsons_bak
+                [ -d "$CRASHDIR"/providers ] && mv -f "$CRASHDIR"/providers /tmp/ShellCrash/providers_bak
                 rm -rf "$CRASHDIR"/*
-                mv -f /tmp/ShellCrash/configs_bak "$CRASHDIR"/configs
-                mv -f /tmp/ShellCrash/yamls_bak "$CRASHDIR"/yamls
-                mv -f /tmp/ShellCrash/jsons_bak "$CRASHDIR"/jsons
+                [ -d /tmp/ShellCrash/configs_bak ] && mv -f /tmp/ShellCrash/configs_bak "$CRASHDIR"/configs
+                [ -d /tmp/ShellCrash/yamls_bak ] && mv -f /tmp/ShellCrash/yamls_bak "$CRASHDIR"/yamls
+                [ -d /tmp/ShellCrash/jsons_bak ] && mv -f /tmp/ShellCrash/jsons_bak "$CRASHDIR"/jsons
+                [ -d /tmp/ShellCrash/providers_bak ] && mv -f /tmp/ShellCrash/providers_bak "$CRASHDIR"/providers
             else
                 rm -rf "$CRASHDIR"
             fi
@@ -40,28 +43,32 @@ uninstall() {
         fi
 
         # 移除其他内容
-        sed -i "/alias $my_alias=*/"d /etc/profile 2>/dev/null
-        sed -i '/alias crash=*/'d /etc/profile 2>/dev/null
-        sed -i '/export CRASHDIR=*/'d /etc/profile 2>/dev/null
-        sed -i '/export crashdir=*/'d /etc/profile 2>/dev/null
+        [ -n "$my_alias" ] && sed -i "/^alias $my_alias=/d" /etc/profile 2>/dev/null
+        sed -i '/^alias crash=/d' /etc/profile 2>/dev/null
+        sed -i '/^export CRASHDIR=/d' /etc/profile 2>/dev/null
+        sed -i '/^export crashdir=/d' /etc/profile 2>/dev/null
         [ -w ~/.zshrc ] && {
-            sed -i "/alias $my_alias=*/"d ~/.zshrc 2>/dev/null
-            sed -i '/export CRASHDIR=*/'d ~/.zshrc 2>/dev/null
+            [ -n "$my_alias" ] && sed -i "/^alias $my_alias=/d" ~/.zshrc 2>/dev/null
+            sed -i '/^export CRASHDIR=/d' ~/.zshrc 2>/dev/null
         }
-        sed -i '/all_proxy/'d /etc/profile 2>/dev/null
-        sed -i '/ALL_PROXY/'d /etc/profile 2>/dev/null
+        sed -i '/all_proxy/d' /etc/profile 2>/dev/null
+        sed -i '/ALL_PROXY/d' /etc/profile 2>/dev/null
         sed -i "/$UNINSTALL_SSH_MARK/d" /etc/firewall.user 2>/dev/null
         sed -i "/$UNINSTALL_CRON_INIT/d" /etc/storage/started_script.sh 2>/dev/null
         sed -i "/$UNINSTALL_CRON_INIT/d" /jffs/.asusrouter 2>/dev/null
-        [ "$BINDIR" != "$CRASHDIR" ] && rm -rf "$BINDIR"
+        case "$BINDIR" in
+        "" | / | /etc | /tmp | /var | /usr | /home | /root | /mnt | "$CRASHDIR") ;;
+        *) rm -rf "$BINDIR" ;;
+        esac
         rm -rf /etc/init.d/shellcrash
         rm -rf /etc/systemd/system/shellcrash.service
         rm -rf /usr/lib/systemd/system/shellcrash.service
         rm -rf /www/clash
         rm -rf /tmp/ShellCrash
         rm -rf /usr/bin/crash
-        sed -i '/0:7890/d' /etc/passwd 2>/dev/null
         userdel -r shellcrash 2>/dev/null
+        sed -i '/^shellcrash:/d' /etc/passwd 2>/dev/null
+        sed -i '/^shellcrash:/d' /etc/group 2>/dev/null
         nvram set script_usbmount="" 2>/dev/null
         nvram commit 2>/dev/null
         comp_box "\033[36m$UNINSTALL_DONE\033[0m" \

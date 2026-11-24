@@ -60,8 +60,11 @@ update_core(){ #自动更新内核
     fi
 }
 update_scripts(){ #自动更新脚本
-    #检查版本
-    check_update version
+    #检查版本（version 文件为纯版本号文本，如 1.9.6alpha1）
+    versionsh=""
+    get_bin "$TMPDIR"/crashversion version echooff
+    [ "$?" = "0" ] && versionsh=$(head -n 1 "$TMPDIR"/crashversion | tr -d '\r\n ')
+    rm -rf "$TMPDIR"/crashversion
     if [ -z "$versionsh" -o "$versionsh" = "$versionsh_l" ];then
         task_logger "$TASK_CMD_SCRIPT_SKIP"
         return 0
@@ -112,12 +115,12 @@ update_mmdb(){ #自动更新数据库
             fi
         fi
     }
-    [ -n "${cn_mini_v}" -a -s "$CRASHDIR"/Country.mmdb ] && getgeo Country.mmdb cn_mini.mmdb
-    [ -n "${china_ip_list_v}" -a -s "$CRASHDIR"/cn_ip.txt ] && getgeo cn_ip.txt china_ip_list.txt
-    [ -n "${china_ipv6_list_v}" -a -s "$CRASHDIR"/cn_ipv6.txt ] && getgeo cn_ipv6.txt china_ipv6_list.txt
-    [ -n "${geosite_v}" -a -s "$CRASHDIR"/GeoSite.dat ] && getgeo GeoSite.dat geosite.dat
-    [ -n "${geoip_cn_v}" -a -s "$CRASHDIR"/geoip.db ] && getgeo geoip.db geoip_cn.db
-    [ -n "${geosite_cn_v}" -a -s "$CRASHDIR"/geosite.db ] && getgeo geosite.db geosite_cn.db
+    [ -n "${cn_mini_v}" ] && { [ -s "$BINDIR"/Country.mmdb ] || [ -s "$CRASHDIR"/Country.mmdb ]; } && getgeo Country.mmdb cn_mini.mmdb
+    [ -n "${china_ip_list_v}" ] && { [ -s "$BINDIR"/cn_ip.txt ] || [ -s "$CRASHDIR"/cn_ip.txt ]; } && getgeo cn_ip.txt china_ip_list.txt
+    [ -n "${china_ipv6_list_v}" ] && { [ -s "$BINDIR"/cn_ipv6.txt ] || [ -s "$CRASHDIR"/cn_ipv6.txt ]; } && getgeo cn_ipv6.txt china_ipv6_list.txt
+    [ -n "${geosite_v}" ] && { [ -s "$BINDIR"/GeoSite.dat ] || [ -s "$CRASHDIR"/GeoSite.dat ]; } && getgeo GeoSite.dat geosite.dat
+    [ -n "${geoip_cn_v}" ] && { [ -s "$BINDIR"/geoip.db ] || [ -s "$CRASHDIR"/geoip.db ]; } && getgeo geoip.db geoip_cn.db
+    [ -n "${geosite_cn_v}" ] && { [ -s "$BINDIR"/geosite.db ] || [ -s "$CRASHDIR"/geosite.db ]; } && getgeo geosite.db geosite_cn.db
     return 0
 }
 reset_firewall(){ #重设透明路由防火墙
@@ -151,13 +154,18 @@ hotupdate() { #热更新订阅
 
 case "$1" in
     [1-9][0-9][0-9])
-        task_command=$(cat "$CRASHDIR"/task/task_${i18n}.list "$TASKCFGDIR"/task.user 2>/dev/null | grep "$1" | awk -F '#' '{print $2}')
-        task_name=$(cat "$CRASHDIR"/task/task_${i18n}.list "$TASKCFGDIR"/task.user 2>/dev/null | grep "$1" | awk -F '#' '{print $3}')
+        task_command=$(cat "$CRASHDIR"/task/task_${i18n}.list "$TASKCFGDIR"/task.user 2>/dev/null | awk -F '#' -v id="$1" '$1 == id {print $2; exit}')
+        task_name=$(cat "$CRASHDIR"/task/task_${i18n}.list "$TASKCFGDIR"/task.user 2>/dev/null | awk -F '#' -v id="$1" '$1 == id {print $3; exit}')
+        [ -z "$task_command" ] && exit 1
         #task_logger "任务$task_name 开始执行"
-        eval $task_command && task_res="$TASK_CMD_RES_OK" || task_res="$TASK_CMD_RES_FAIL"
-        task_logger "$TASK_CMD_EXEC_PREFIX$2$TASK_CMD_EXEC_MID$task_res"
+        eval "$task_command" && task_res="$TASK_CMD_RES_OK" || task_res="$TASK_CMD_RES_FAIL"
+        task_logger "$TASK_CMD_EXEC_PREFIX${2:-$task_name}$TASK_CMD_EXEC_MID$task_res"
+    ;;
+    update_core|update_scripts|update_mmdb|reset_firewall|ntp|web_save_auto|update_config|hotupdate)
+        "$1"
     ;;
     *)
-        "$1"
+        echo "Unsupported task command: $1" >&2
+        exit 1
     ;;
 esac

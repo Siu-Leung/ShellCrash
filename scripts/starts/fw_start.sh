@@ -53,8 +53,12 @@
     /bin/sh "$CRASHDIR"/starts/fw_ipv6_watch.sh start
 #修复部分虚拟机dns查询失败的问题
 [ "$firewall_area" = 2 -o "$firewall_area" = 3 ] && [ -z "$(grep '127.0.0.1' /etc/resolv.conf 2>/dev/null)" ] && [ "$systype" != 'container' ] && {
-    line=$(grep -n 'nameserver' /etc/resolv.conf | awk -F: 'FNR==1{print $1}')
-    sed -i "$line i\nameserver 127.0.0.1 #shellcrash-dns-repair" /etc/resolv.conf >/dev/null 2>&1
+    line=$(grep -n 'nameserver' /etc/resolv.conf 2>/dev/null | awk -F: 'FNR==1{print $1}')
+    if [ -n "$line" ]; then
+        sed -i "$line i\\nameserver 127.0.0.1 #shellcrash-dns-repair" /etc/resolv.conf >/dev/null 2>&1
+    else
+        echo "nameserver 127.0.0.1 #shellcrash-dns-repair" >>/etc/resolv.conf 2>/dev/null
+    fi
 }
 #移除openwrt-dnsmasq的DNS重定向
 [ "$(uci get dhcp.@dnsmasq[0].dns_redirect 2>/dev/null)" = 1 ] && {

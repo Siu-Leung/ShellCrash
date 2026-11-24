@@ -1,8 +1,13 @@
 #!/bin/sh
 # Copyright (C) Juewuy
 
+_sb_esc() {
+    printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
+}
+
 [ "$vms_service" = ON ] && {
-    [ -n "$vms_ws_path" ] && transport=', "transport": { "type": "ws", "path": "'"$vms_ws_path"'" }'
+    transport=""
+    [ -n "$vms_ws_path" ] && transport=', "transport": { "type": "ws", "path": "'"$(_sb_esc "$vms_ws_path")"'" }'
     cat >"$TMPDIR"/jsons/vmess-in.json <<EOF
 {
   "inbounds": [
@@ -13,7 +18,7 @@
       "listen_port": $vms_port,
       "users": [
         {
-          "uuid": "$vms_uuid"
+          "uuid": "$(_sb_esc "$vms_uuid")"
         }
       ]$transport
     }
@@ -31,8 +36,8 @@ EOF
       "tag": "ss-in",
       "listen": "::",
       "listen_port": $sss_port,
-      "method": "$sss_cipher",
-      "password": "$sss_pwd",
+      "method": "$(_sb_esc "$sss_cipher")",
+      "password": "$(_sb_esc "$sss_pwd")"
     }
   ]
 }

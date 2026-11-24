@@ -1,7 +1,7 @@
 get_save() { #获取面板信息并内部处理所有异常
 	local response exit_code
 	if curl --version >/dev/null 2>&1; then
-		response=$(curl -sf -H "Authorization: Bearer ${secret}" -H "Content-Type:application/json" "$1" 2>&1)
+		response=$(http_proxy="" https_proxy="" HTTP_PROXY="" HTTPS_PROXY="" all_proxy="" ALL_PROXY="" curl -sf --noproxy '*' --connect-timeout 2 --max-time 5 -H "Authorization: Bearer ${secret}" -H "Content-Type:application/json" "$1" 2>&1)
 		exit_code=$?
 		[ $exit_code -eq 0 ] && [ -n "$response" ] && [ "$response" != "{}" ] && {
 			echo "$response"
@@ -9,7 +9,7 @@ get_save() { #获取面板信息并内部处理所有异常
 		}
 		return 1
 	elif [ -n "$(wget --help 2>&1 | grep '\-\-method')" ]; then
-		response=$(wget -q --header="Authorization: Bearer ${secret}" --header="Content-Type:application/json" -O - "$1" 2>&1)
+		response=$(http_proxy="" https_proxy="" HTTP_PROXY="" HTTPS_PROXY="" wget -q --timeout=3 --no-proxy --header="Authorization: Bearer ${secret}" --header="Content-Type:application/json" -O - "$1" 2>&1)
 		exit_code=$?
 		[ $exit_code -eq 0 ] && [ -n "$response" ] && [ "$response" != "{}" ] && {
 			echo "$response"

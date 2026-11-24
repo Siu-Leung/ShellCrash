@@ -28,16 +28,19 @@ start_core() {
         core_config="$CRASHDIR/yamls/config.yaml"
     fi
 
-    if [ ! -s "$core_config" ] && [ -s "$CRASHDIR/configs/providers.cfg" ]; then
-        if [ "$crashcore" = singboxr ]; then
-            CORE_TYPE=singbox
-        else
-            CORE_TYPE=clash
-        fi
-        . "$CRASHDIR/menus/providers_$CORE_TYPE.sh" && gen_providers
-
+    if [ ! -s "$core_config" ] && { [ -s "$CRASHDIR/configs/providers.cfg" ] || [ -s "$CRASHDIR/configs/providers_uri.cfg" ]; }; then
         comp_box "\033[33m$START_NO_CORE_CFG_TRY_GEN\033[0m"
-    elif [ -s "$core_config" ] || [ -n "$Url" ] || [ -n "$Https" ]; then
+        if [ "$local_sub" = "ON" ] || [ ! -s "$CRASHDIR/configs/providers.cfg" ]; then
+            . "$CRASHDIR/libs/local_sub_convert.sh" && local_sub_convert && start_service
+        else
+            if echo "$crashcore" | grep -q 'singbox'; then
+                CORE_TYPE=singbox
+            else
+                CORE_TYPE=clash
+            fi
+            . "$CRASHDIR/menus/providers_$CORE_TYPE.sh" && gen_providers
+        fi
+    elif [ -s "$core_config" ] || [ -n "$Url" ] || [ -n "$Https" ] || [ "$local_sub" = "ON" ]; then
         "$CRASHDIR/start.sh" start
 
         # 循环检测服务启动状态

@@ -79,6 +79,9 @@ ckcmd iptables && {
     $iptable -D INPUT -p udp -m multiport --dports "$accept_ports" -j ACCEPT 2>/dev/null
     $iptable -D INPUT -p tcp -m multiport --dports "$mix_port,$db_port" -j REJECT 2>/dev/null
     $iptable -D INPUT -p udp -m multiport --dports "$mix_port,$db_port" -j REJECT 2>/dev/null
+    _reject_dns="${dns_port:-${dns_redir_port:-1053}}"
+    $iptable -D INPUT -p tcp -m multiport --dports "${mix_port:-7890},${db_port:-9999},$_reject_dns,${redir_port:-7892},${tproxy_port:-7893}" -j REJECT 2>/dev/null
+    $iptable -D INPUT -p udp -m multiport --dports "${mix_port:-7890},${db_port:-9999},$_reject_dns,${redir_port:-7892},${tproxy_port:-7893}" -j REJECT 2>/dev/null
     #清理shellcrash自建表
     for text in shellcrash_dns shellcrash shellcrash_out shellcrash_dns_out shellcrash_vm shellcrash_vm_dns; do
         $iptable -t nat -F "$text" 2>/dev/null
@@ -148,6 +151,9 @@ ckcmd ip6tables && {
     $ip6table -D INPUT -p udp -m multiport --dports "$accept_ports" -j ACCEPT 2>/dev/null
     $ip6table -D INPUT -p tcp -m multiport --dports "$mix_port,$db_port" -j REJECT 2>/dev/null
     $ip6table -D INPUT -p udp -m multiport --dports "$mix_port,$db_port" -j REJECT 2>/dev/null
+    _reject_dns="${dns_port:-${dns_redir_port:-1053}}"
+    $ip6table -D INPUT -p tcp -m multiport --dports "${mix_port:-7890},${db_port:-9999},$_reject_dns,${redir_port:-7892},${tproxy_port:-7893}" -j REJECT 2>/dev/null
+    $ip6table -D INPUT -p udp -m multiport --dports "${mix_port:-7890},${db_port:-9999},$_reject_dns,${redir_port:-7892},${tproxy_port:-7893}" -j REJECT 2>/dev/null
     #清理shellcrash自建表
     for text in shellcrashv6_dns shellcrashv6 shellcrashv6_out; do
         $ip6table -t nat -F "$text" 2>/dev/null

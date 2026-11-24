@@ -17,12 +17,17 @@ fi
 # 零外泄本地拉取与订阅转换
 subconverter() {
     while true; do
-        if [ -z "$(grep "provider_temp_${CORE_TYPE}" "$CRASHDIR"/configs/ShellCrash.cfg 2>/dev/null)" ]; then
-            provider_temp_des=$(sed -n "1 p" "$CRASHDIR"/configs/"${CORE_TYPE}"_providers.list 2>/dev/null | awk '{print $1}')
+        . "$CFG_PATH" >/dev/null 2>&1
+        if [ "$CORE_TYPE" = "singbox" ]; then
+            provider_temp_file="$provider_temp_singbox"
         else
-            provider_temp_file=$(grep "provider_temp_${CORE_TYPE}" "$CRASHDIR"/configs/ShellCrash.cfg | awk -F '=' '{print $2}')
-            provider_temp_des=$(grep "$provider_temp_file" "$CRASHDIR"/configs/"${CORE_TYPE}"_providers.list 2>/dev/null | awk '{print $1}')
-            [ -z "$provider_temp_des" ] && provider_temp_des=$provider_temp_file
+            provider_temp_file="$provider_temp_clash"
+        fi
+        if [ -z "$provider_temp_file" ]; then
+            provider_temp_des=$(sed -n "1p" "$CRASHDIR"/configs/"${CORE_TYPE}"_providers.list 2>/dev/null | awk '{print $1}')
+        else
+            provider_temp_des=$(awk -v f="$provider_temp_file" '$2 == f {print $1; exit}' "$CRASHDIR"/configs/"${CORE_TYPE}"_providers.list 2>/dev/null)
+            [ -z "$provider_temp_des" ] && provider_temp_des="$provider_temp_file"
         fi
 
         comp_box "\033[32m$SUBCONVERTER_LOCAL_BANNER\033[0m" \
@@ -87,7 +92,7 @@ gen_link_flt() {
         ;;
     esac
 
-    if setconfig exclude "'$exclude'"; then
+    if setconfig_quote exclude "$exclude"; then
         common_success
     else
         common_failed
@@ -115,7 +120,7 @@ gen_link_ele() {
         ;;
     esac
 
-    if setconfig include "'$include'"; then
+    if setconfig_quote include "$include"; then
         common_success
     else
         common_failed
@@ -139,7 +144,7 @@ gen_link_config() {
         line_break
         read -r -p "$PROVIDERS_TEMPLATE_PATH> " dir
         if [ -s "$dir" ]; then
-            if setconfig provider_temp_"$CORE_TYPE" "$dir"; then
+            if setconfig_quote provider_temp_"$CORE_TYPE" "$dir"; then
                 common_success
             else
                 common_failed
@@ -148,17 +153,20 @@ gen_link_config() {
             msg_alert "\033[31m$PROVIDERS_TEMPLATE_NOT_FOUND\033[0m"
         fi
         ;;
-    *)
+    [1-9] | [1-9][0-9])
         provider_temp_file=$(sed -n "${num}p" "$CRASHDIR/configs/${CORE_TYPE}_providers.list" 2>/dev/null | awk '{print $2}')
         if [ -z "$provider_temp_file" ]; then
             errornum
         else
-            if setconfig provider_temp_"$CORE_TYPE" "$provider_temp_file"; then
+            if setconfig_quote provider_temp_"$CORE_TYPE" "$provider_temp_file"; then
                 msg_alert "\033[32m$SUBCONVERTER_SET_OK\033[0m"
             else
                 common_failed
             fi
         fi
+        ;;
+    *)
+        errornum
         ;;
     esac
 }
@@ -206,7 +214,7 @@ set_sub_ua() {
         esac
 
         if [ "$num" -ge 1 ] && [ "$num" -le 4 ]; then
-            if setconfig user_agent "$user_agent"; then
+            if setconfig_quote user_agent "$user_agent"; then
                 common_success
             else
                 common_failed

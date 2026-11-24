@@ -41,7 +41,8 @@ forwhat() {
         "" | 1)
             # 设置运行模式
             redir_mod="Mix"
-            content_line "$cputype" | grep -Eq 'linux.*mips.*' && {
+            _arch="${cpucore:-$(uname -m 2>/dev/null)}"
+            echo "$_arch" | grep -qi 'mips' && {
                 if grep -qE '^TPROXY$' /proc/net/ip_tables_targets || modprobe xt_TPROXY >/dev/null 2>&1; then
                     redir_mod="Tproxy"
                 else
@@ -92,7 +93,7 @@ forwhat() {
             ;;
         2)
             setconfig redir_mod "Redir"
-            content_line "$cputype" | grep -Eq "linux.*mips.*" && setconfig crashcore "clash"
+            [ -z "$crashcore" ] && setconfig crashcore "meta"
             setconfig common_ports "OFF"
             setconfig firewall_area '2'
             break

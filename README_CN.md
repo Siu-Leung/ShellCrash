@@ -93,7 +93,7 @@ crash -h     # 查看命令行帮助
 在本仓库 GitHub **Actions** 页面手动触发以下工作流即可全部替换为自己编译的二进制与最新规则库：
 
 - `core_easy_update`：输入 `meta`、`singbox` 或 `singboxr`，从官方源码交叉编译并推送至 `update` 分支。
-- `bin_update`：自动更新最新 Zashboard / Metacubexd 面板、GeoIP / GeoSite / `.mrs` / `.srs` 数据库、CA 根证书，并同步 `dev` 分支的 `ShellCrash.tar.gz`。
+- `bin_update`：自动更新最新 Zashboard / Metacubexd 面板、GeoIP / GeoSite、全套 `.mrs` / `.srs` 规则集（发布至 `update` 分支 `bin/ruleset/`）、CA 根证书，并同步 `dev` 分支的 `ShellCrash.tar.gz`。
 
 ## 运行依赖
 
@@ -113,6 +113,8 @@ sh sync_pkg.sh
 for t in tests/test_*.sh; do sh "$t"; done
 ```
 
-## 许可协议
+## 版权署名与许可协议
+
+本项目基于原作者 **Juewuy** 的开源项目 ShellCrash 进行安全审计与零信任加固；保留全部原作者版权署名，仅移除对其托管下载源及第三方中转服务的依赖。
 
 本项目采用 [GNU 通用公共许可证第 3.0 版（GPL-3.0）](LICENSE.txt) 授权。

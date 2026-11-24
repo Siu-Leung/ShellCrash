@@ -17,50 +17,77 @@
 
 LOCAL_SUB_URI_RE='^(ss|ssr|vmess|vless|trojan|hysteria|hysteria2|hy2|tuic|anytls|shadowtls|wireguard|socks|http)://'
 
+# 校验提供者标签安全（防路径遍历 ../ 与 YAML/JSON 注入）
+local_valid_tag() {
+    case "$1" in
+        '' | *..* | */* | *\\* | *\"* | *\'* | *\`* | *\$* | *:* | *,* | *\[* | *\]* | *\{* | *\}* | *[[:space:]]*) return 1 ;;
+    esac
+    return 0
+}
+
 # 转义双引号与反斜杠，防止过滤正则破坏 YAML/JSON 字符串语法
 local_escape_dq() {
     printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
 }
 
-# 字面量替换模板占位符（避免 sed 对 / 和 & 的特殊解释）
+# 字面量替换模板占位符（通过 ENVIRON 传参，彻底避免 awk -v 对反斜杠和 sed 对 /& 的特殊解释）
 local_replace_placeholder() {
     _file=$1
     _needle=$2
     _repl=$3
-    awk -v n="$_needle" -v r="$_repl" '
+    _LSC_N="$_needle" _LSC_R="$_repl" awk '
+        BEGIN { n = ENVIRON["_LSC_N"]; r = ENVIRON["_LSC_R"]; nlen = length(n) }
         {
             out = ""
             line = $0
             while ((idx = index(line, n)) > 0) {
                 out = out substr(line, 1, idx - 1) r
-                line = substr(line, idx + length(n))
+                line = substr(line, idx + nlen)
             }
             print out line
         }
     ' "$_file" >"${_file}.tmp.$$" && mv -f "${_file}.tmp.$$" "$_file"
 }
 
-# 本地 Base64 解码（兼容 BusyBox / GNU base64 / openssl，自动处理 URL-safe 与缺失 padding）
+# 同步 $CRASHDIR/providers 到 $BINDIR/providers（兼容小闪存/分离目录模式）
+local_sync_bindir_providers() {
+    [ -n "$BINDIR" ] && [ "$CRASHDIR" != "$BINDIR" ] || return 0
+    mkdir -p "$BINDIR/providers"
+    for _pf in "$CRASHDIR"/providers/*; do
+        [ -f "$_pf" ] && ln -sf "$_pf" "$BINDIR/providers/"
+    done
+}
+
+# 本地 Base64 流式解码（兼容大订阅避免 ARG_MAX，支持 URL-safe 与自动补齐 padding）
 local_b64_decode() {
     _in_file=$1
     _out_file=$2
-    _clean=$(tr -d '\r\n\t ' <"$_in_file" | tr '_-' '/+')
-    [ -n "$_clean" ] || return 1
-    # 校验是否为合法 Base64 字符集
-    printf '%s' "$_clean" | grep -Eq '^[A-Za-z0-9+/]+={0,2}$' || return 1
-    _rem=$(( ${#_clean} % 4 ))
-    case "$_rem" in
-        2) _clean="${_clean}==" ;;
-        3) _clean="${_clean}=" ;;
-        1) return 1 ;;
-    esac
-    if command -v base64 >/dev/null 2>&1; then
-        printf '%s' "$_clean" | base64 -d >"$_out_file" 2>/dev/null
-    elif command -v openssl >/dev/null 2>&1; then
-        printf '%s' "$_clean" | openssl base64 -d -A >"$_out_file" 2>/dev/null
-    else
+    _b64_tmp="${_out_file}.b64.$$"
+    tr -d '\r\n\t ' <"$_in_file" | tr '_-' '/+' >"$_b64_tmp"
+    [ -s "$_b64_tmp" ] || { rm -f "$_b64_tmp"; return 1; }
+    # 校验是否为合法 Base64 字符集（单行整文件校验，不进入 shell argv）
+    if grep -qE '[^A-Za-z0-9+/=]' "$_b64_tmp"; then
+        rm -f "$_b64_tmp"
         return 1
     fi
+    _len=$(wc -c <"$_b64_tmp" | tr -d ' ')
+    _rem=$(( _len % 4 ))
+    case "$_rem" in
+        2) printf '==' >>"$_b64_tmp" ;;
+        3) printf '=' >>"$_b64_tmp" ;;
+        1) rm -f "$_b64_tmp"; return 1 ;;
+    esac
+    if command -v base64 >/dev/null 2>&1; then
+        base64 -d <"$_b64_tmp" >"$_out_file" 2>/dev/null
+        _rc=$?
+    elif command -v openssl >/dev/null 2>&1; then
+        openssl base64 -d -A <"$_b64_tmp" >"$_out_file" 2>/dev/null
+        _rc=$?
+    else
+        _rc=1
+    fi
+    rm -f "$_b64_tmp"
+    return "$_rc"
 }
 
 # 对 URI 列表按节点名称（# 后片段或整行）执行 include / exclude 正则过滤
@@ -69,7 +96,8 @@ local_filter_uri_file() {
     _dst=$2
     _inc=$3
     _exc=$4
-    awk -v inc="$_inc" -v exc="$_exc" '
+    _LSC_INC="$_inc" _LSC_EXC="$_exc" awk '
+        BEGIN { inc = ENVIRON["_LSC_INC"]; exc = ENVIRON["_LSC_EXC"] }
         {
             sub(/\r$/, "")
             gsub(/^[[:space:]]+|[[:space:]]+$/, "")
@@ -79,6 +107,11 @@ local_filter_uri_file() {
             print $0
         }
     ' "$_src" >"$_dst"
+}
+
+# 去除 UTF-8 BOM (EF BB BF) 和回车 CR，兼容 Windows/机场导出的订阅
+local_strip_bom_cr() {
+    awk 'NR==1 { sub(/^\357\273\277/, "") } { sub(/\r$/, ""); print }' "$1" >"$2"
 }
 
 # 检测并归一化单个订阅文件：
@@ -93,7 +126,7 @@ local_normalize_sub_file() {
     LOCAL_SUB_OUT=""
 
     [ -s "$_raw" ] || return 1
-    tr -d '\r' <"$_raw" >"${_raw}.norm"
+    local_strip_bom_cr "$_raw" "${_raw}.norm"
 
     # 1. 判断是否为 Clash/Mihomo YAML（含 proxies: 或 proxy-providers:）
     if grep -Eq '^[[:space:]]*(proxies|proxy-providers):' "${_raw}.norm"; then
@@ -123,7 +156,7 @@ local_normalize_sub_file() {
 
     # 4. 尝试 Base64 解码（标准机场通用订阅格式）
     if local_b64_decode "${_raw}.norm" "${_raw}.dec"; then
-        tr -d '\r' <"${_raw}.dec" >"${_raw}.dec.norm"
+        local_strip_bom_cr "${_raw}.dec" "${_raw}.dec.norm"
         if grep -Eq "$LOCAL_SUB_URI_RE" "${_raw}.dec.norm"; then
             LOCAL_SUB_FMT="uri"
             LOCAL_SUB_OUT="${_prefix}.txt"
@@ -156,12 +189,18 @@ local_fetch_one_provider() {
     _exc=$5
     LOCAL_SUB_REL_PATH=""
 
+    if ! local_valid_tag "$_tag"; then
+        logger "非法提供者名称已拒绝：$_tag" 31
+        return 1
+    fi
+
     mkdir -p "$CRASHDIR/providers" "$TMPDIR/local_sub"
     _stage_raw="$TMPDIR/local_sub/${_tag}.raw"
     _dest_prefix="$CRASHDIR/providers/${_tag}"
 
     case "$_src" in
         ./providers/*)
+            case "$_src" in *..* ) return 1 ;; esac
             _local_src="$CRASHDIR/${_src#./}"
             [ -s "$_local_src" ] || return 1
             cp -f "$_local_src" "$_stage_raw"
@@ -196,7 +235,7 @@ local_build_clash_config() {
     if [ -z "$(grep 'provider_temp_clash' "$CRASHDIR"/configs/ShellCrash.cfg 2>/dev/null)" ]; then
         _tpl_file=$(sed -n '1p' "$CRASHDIR"/configs/clash_providers.list 2>/dev/null | awk '{print $2}')
     else
-        _tpl_file=$(grep 'provider_temp_clash' "$CRASHDIR"/configs/ShellCrash.cfg | awk -F '=' '{print $2}')
+        _tpl_file=$(grep 'provider_temp_clash' "$CRASHDIR"/configs/ShellCrash.cfg | tail -n 1 | cut -d= -f2- | tr -d "'\"")
     fi
     [ -z "$_tpl_file" ] && _tpl_file="ShellCrash_RS_Nano.yaml"
 
@@ -221,18 +260,24 @@ local_build_clash_config() {
 
     _tags=""
     _ok_count=0
-    [ "$skip_cert" != "OFF" ] && _skip_line="      skip-cert-verify: true" || _skip_line="      skip-cert-verify: false"
+    # 安全加固：fail-closed，仅显式 skip_cert=ON 时跳过节点 TLS 校验
+    [ "$skip_cert" = "ON" ] && _skip_line="      skip-cert-verify: true" || _skip_line="      skip-cert-verify: false"
 
     _append_clash_file_provider() {
         _ptag=$1
         _ppath=$2
-        _pint=${3:-3}
+        _pint=$3
         _pexc=$4
         _pinc=$5
+        case "$_pint" in
+            '' | *[!0-9]*) _pint=3 ;;
+            0) _pint=3 ;;
+        esac
+        _ppath_esc=$(local_escape_dq "$_ppath")
         cat >>"$TMPDIR/providers/providers.yaml" <<EOF
   ${_ptag}:
     type: file
-    path: "${_ppath}"
+    path: "${_ppath_esc}"
     health-check:
       enable: true
       lazy: true
@@ -281,8 +326,8 @@ EOF
             done <"$CRASHDIR/configs/providers.cfg"
         fi
         if [ -s "$CRASHDIR/configs/providers_uri.cfg" ]; then
-            mkdir -p "$CRASHDIR/providers"
-            awk '{ print ($1=="vmess" ? $2 : $2 "#" $1) }' "$CRASHDIR/configs/providers_uri.cfg" >"$TMPDIR/local_sub/uri_group.raw"
+            mkdir -p "$CRASHDIR/providers" "$TMPDIR/local_sub"
+            awk 'NF>=2 && $1 !~ /^#/ { print ($1=="vmess" || index($2,"#")>0 ? $2 : $2 "#" $1) }' "$CRASHDIR/configs/providers_uri.cfg" >"$TMPDIR/local_sub/uri_group.raw"
             local_filter_uri_file "$TMPDIR/local_sub/uri_group.raw" "$CRASHDIR/providers/uri_group" "$include" "$exclude"
             rm -f "$TMPDIR/local_sub/uri_group.raw"
             if [ -s "$CRASHDIR/providers/uri_group" ]; then
@@ -300,6 +345,7 @@ EOF
     local_replace_placeholder "$TMPDIR/providers/proxy-groups.yaml" "{providers_tags}" "$_tags"
     cat "$TMPDIR/providers/providers.yaml" "$TMPDIR/providers/proxy-groups.yaml" "$TMPDIR/providers/rules.yaml" >"$TMPDIR/config.yaml"
     rm -rf "$TMPDIR/providers" "$TMPDIR/local_sub"
+    local_sync_bindir_providers
 
     # 若内核存在则校验生成的配置；离线/无内核测试环境允许跳过
     if [ "${LOCAL_SUB_SKIP_CORE_TEST:-0}" != "1" ]; then
@@ -322,7 +368,7 @@ local_build_singbox_config() {
     if [ -z "$(grep 'provider_temp_singbox' "$CRASHDIR"/configs/ShellCrash.cfg 2>/dev/null)" ]; then
         _tpl_file=$(sed -n '1p' "$CRASHDIR"/configs/singbox_providers.list 2>/dev/null | awk '{print $2}')
     else
-        _tpl_file=$(grep 'provider_temp_singbox' "$CRASHDIR"/configs/ShellCrash.cfg | awk -F '=' '{print $2}')
+        _tpl_file=$(grep 'provider_temp_singbox' "$CRASHDIR"/configs/ShellCrash.cfg | tail -n 1 | cut -d= -f2- | tr -d "'\"")
     fi
     [ -z "$_tpl_file" ] && _tpl_file="ShellCrash_RS_Nano.json"
 
@@ -351,23 +397,30 @@ EOF
 
     _tags=""
     _ok_count=0
-    [ "$skip_cert" != "OFF" ] && _override_tls='true' || _override_tls='false'
+    # 安全加固：fail-closed，仅显式 skip_cert=ON 时跳过节点 TLS 校验
+    [ "$skip_cert" = "ON" ] && _override_tls='true' || _override_tls='false'
 
     _append_sb_local_provider() {
         _ptag=$1
         _ppath=$2
-        _pint=${3:-3}
+        _pint=$3
         _pexc=$4
         _pinc=$5
+        case "$_pint" in
+            '' | *[!0-9]*) _pint=3 ;;
+            0) _pint=3 ;;
+        esac
+        _ptag_esc=$(local_escape_dq "$_ptag")
+        _ppath_esc=$(local_escape_dq "$_ppath")
         _exc_line=""
         _inc_line=""
         [ -n "$_pexc" ] && _exc_line="      \"exclude\": \"$(local_escape_dq "$_pexc")\","
         [ -n "$_pinc" ] && _inc_line="      \"include\": \"$(local_escape_dq "$_pinc")\","
         cat >>"$TMPDIR/providers/providers.json" <<EOF
     {
-      "tag": "$_ptag",
+      "tag": "$_ptag_esc",
       "type": "local",
-      "path": "$_ppath",
+      "path": "$_ppath_esc",
 ${_exc_line}
 ${_inc_line}
       "health_check": {
@@ -385,8 +438,8 @@ ${_inc_line}
       }
     },
 EOF
-        echo '{ "tag": "'"$_ptag"'", "type": "urltest", "tolerance": 100, "providers": ["'"$_ptag"'"], "include": ".*" },' >>"$TMPDIR/providers/outbounds_add.json"
-        _tags=$(printf '%s, "%s"' "$_tags" "$_ptag" | sed 's/^, //')
+        echo '{ "tag": "'"$_ptag_esc"'", "type": "urltest", "tolerance": 100, "providers": ["'"$_ptag_esc"'"], "include": ".*" },' >>"$TMPDIR/providers/outbounds_add.json"
+        _tags=$(printf '%s, "%s"' "$_tags" "$_ptag_esc" | sed 's/^, //')
         _ok_count=$((_ok_count + 1))
     }
 
@@ -422,8 +475,8 @@ EOF
             done <"$CRASHDIR/configs/providers.cfg"
         fi
         if [ -s "$CRASHDIR/configs/providers_uri.cfg" ]; then
-            mkdir -p "$CRASHDIR/providers"
-            awk '{ print ($1=="vmess" ? $2 : $2 "#" $1) }' "$CRASHDIR/configs/providers_uri.cfg" >"$TMPDIR/local_sub/uri_group.raw"
+            mkdir -p "$CRASHDIR/providers" "$TMPDIR/local_sub"
+            awk 'NF>=2 && $1 !~ /^#/ { print ($1=="vmess" || index($2,"#")>0 ? $2 : $2 "#" $1) }' "$CRASHDIR/configs/providers_uri.cfg" >"$TMPDIR/local_sub/uri_group.raw"
             local_filter_uri_file "$TMPDIR/local_sub/uri_group.raw" "$CRASHDIR/providers/uri_group" "$include" "$exclude"
             rm -f "$TMPDIR/local_sub/uri_group.raw"
             if [ -s "$CRASHDIR/providers/uri_group" ]; then
@@ -444,6 +497,7 @@ EOF
     local_replace_placeholder "$TMPDIR/providers/outbounds.json" "{providers_tags}" "$_tags"
     local_replace_placeholder "$TMPDIR/providers/outbounds.json" "\"providers_tags\"" "$_tags"
     rm -f "$TMPDIR/provider_temp_file"
+    local_sync_bindir_providers
 
     if [ "${LOCAL_SUB_SKIP_CORE_TEST:-0}" != "1" ]; then
         . "$CRASHDIR"/starts/check_core.sh && check_core

@@ -7,7 +7,12 @@ load_lang bot_tg
 private_bot() {
     comp_box "$BOT_TG_PRIVATE_HINT"
     read -r -p "$BOT_TG_INPUT_TOKEN> " TOKEN
-    url_tg=https://api.telegram.org/bot${TOKEN}/getUpdates
+    if ! printf '%s' "$TOKEN" | grep -qE '^[0-9]+:[A-Za-z0-9_-]{20,}$'; then
+        msg_alert "\033[31mInvalid Telegram Bot Token format!\033[0m"
+        TOKEN=""
+        return 1
+    fi
+    url_tg="https://api.telegram.org/bot${TOKEN}/getUpdates"
 
     top_box "$BOT_TG_PRIVATE_TOP"
 }
@@ -20,7 +25,7 @@ public_bot() {
 
 tg_push_token() {
     push_TG="$TOKEN"
-    setconfig push_TG "$TOKEN"
+    setconfig_quote push_TG "$TOKEN"
     setconfig chat_ID "$chat_ID"
     . "$CRASHDIR"/libs/logger.sh && logger "$BOT_TG_SET_DONE" 32
 }
@@ -33,7 +38,8 @@ get_chatid() {
         comp_box "\033[33m$BOT_TG_CHATID_RETRY_PREFIX $i $BOT_TG_CHATID_RETRY_SUFFIX\033[0m"
         chat=$(web_get_lite "$url_tg" 2>/dev/null)
         if [ -n "$chat" ]; then
-            chat_ID=$(echo "$chat" | sed 's/"update_id":/{\n"update_id":/g' | grep "$public_key" | head -n1 | grep -oE '"id":.*,"is_bot' | sed s'/"id"://' | sed s'/,"is_bot//')
+            chat_ID=$(printf '%s' "$chat" | sed 's/"update_id":/\n"update_id":/g' | grep -F "$public_key" | head -n1 | grep -oE '"chat":[[:space:]]*\{[[:space:]]*"id":[[:space:]]*-?[0-9]+' | head -n1 | grep -oE -- '-?[0-9]+$')
+            [ -z "$chat_ID" ] && chat_ID=$(printf '%s' "$chat" | sed 's/"update_id":/\n"update_id":/g' | grep -F "$public_key" | head -n1 | grep -oE '"id":[[:space:]]*-?[0-9]+,"is_bot":false' | head -n1 | grep -oE -- '-?[0-9]+' | head -n1)
         fi
         i=$((i + 1))
     done
@@ -50,11 +56,12 @@ set_bot() {
                 "$BOT_TG_CHATID_MANUAL_HINT \033[32;4m$url_tg\033[0m \n\033[36m$BOT_TG_CHATID_MANUAL_HINT2\033[0m"
             read -r -p "$BOT_TG_INPUT_CHATID> " chat_ID
         }
-        if echo "$chat_ID" | grep -qE '^[0-9]{8,}$'; then
+        if printf '%s' "$chat_ID" | grep -qE '^-?[0-9]{5,}$'; then
             return 0
         else
             msg_alert "\033[31m$BOT_TG_CHATID_RECONFIG\033[0m"
             return 1
         fi
     fi
+    return 1
 }

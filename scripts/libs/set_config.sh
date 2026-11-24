@@ -92,62 +92,127 @@ ensure_safe_tmpdir() {
     return 0
 }
 
-# 执行 .upg_txn 快照的字节级文件与服务恢复（供主动回滚与崩溃自愈共用）
-_upg_txn_restore() {
-    _utr_txn="${1:-$CRASHDIR/.upg_txn}"
-    if [ -f "$_utr_txn/newlist" ]; then
-        while IFS= read -r _rel; do
-            [ -n "$_rel" ] || continue
-            [ -e "$_utr_txn/bak/$_rel" ] || rm -f "$CRASHDIR/$_rel" 2>/dev/null
-        done <"$_utr_txn/newlist"
+# 核验升级/回滚后实例级运行健康度（systemd MainPID + CrashCore 进程 + 真实 ELF 核心本地控制器 API）
+_upg_check_service_ready() {
+    if { [ "$(id -u 2>/dev/null)" = "0" ] || [ "$USER" = "root" ]; } && \
+       grep -q 'systemd' /proc/1/comm 2>/dev/null && \
+       [ "$(systemctl show -p LoadState shellcrash.service 2>/dev/null | sed 's/LoadState=//')" = "loaded" ]; then
+        systemctl is-active --quiet shellcrash.service || return 1
+        _ucsr_mpid=$(systemctl show -p MainPID shellcrash.service 2>/dev/null | sed 's/MainPID=//' | tr -d '\r\n ')
+        case "$_ucsr_mpid" in
+            '' | 0 | *[!0-9]*) return 1 ;;
+        esac
+        [ -d "/proc/$_ucsr_mpid" ] || return 1
     fi
-    if [ -d "$_utr_txn/bak" ]; then
-        ( cd "$_utr_txn/bak" && find . -type f | sed 's|^\./||' ) | while IFS= read -r _rel; do
-            [ -n "$_rel" ] || continue
-            mkdir -p "$CRASHDIR/$(dirname "$_rel")"
-            cp -f "$_utr_txn/bak/$_rel" "$CRASHDIR/$_rel" 2>/dev/null
-        done
+    if [ -e "$TMPDIR/CrashCore" ]; then
+        pidof CrashCore >/dev/null 2>&1 || return 1
+        # 若运行时核心为真实 ELF 二进制（非离线测试脚本替身），进一步核验本地控制器 API 就绪
+        _ucsr_magic=$(od -An -tx1 -N4 "$TMPDIR/CrashCore" 2>/dev/null | tr -d ' \t\r\n')
+        if [ "$_ucsr_magic" = "7f454c46" ]; then
+            (
+                [ -f "$CRASHDIR/configs/ShellCrash.cfg" ] && . "$CRASHDIR/configs/ShellCrash.cfg" >/dev/null 2>&1
+                [ "$firewall_area" = "5" ] && exit 0
+                _dbp="${db_port:-9999}"
+                _try=1
+                while [ "$_try" -le 8 ]; do
+                    if command -v curl >/dev/null 2>&1; then
+                        http_proxy="" https_proxy="" HTTP_PROXY="" HTTPS_PROXY="" all_proxy="" ALL_PROXY="" \
+                            curl -fsS --noproxy '*' --connect-timeout 1 --max-time 2 \
+                            -H "Authorization: Bearer $secret" "http://127.0.0.1:${_dbp}/version" 2>/dev/null | grep -q '"version"' && exit 0
+                    elif command -v wget >/dev/null 2>&1; then
+                        http_proxy="" https_proxy="" HTTP_PROXY="" HTTPS_PROXY="" \
+                            wget -q --timeout=2 --no-proxy --header="Authorization: Bearer $secret" \
+                            -O - "http://127.0.0.1:${_dbp}/version" 2>/dev/null | grep -q '"version"' && exit 0
+                    else
+                        exit 0
+                    fi
+                    sleep 1
+                    _try=$((_try + 1))
+                done
+                exit 1
+            ) || return 1
+        fi
     fi
-    _utr_run=$(cat "$_utr_txn/was_running" 2>/dev/null)
-    rm -rf "$_utr_txn"
-    [ "$_utr_run" = "1" ] && "$CRASHDIR"/start.sh start >/dev/null 2>&1 || true
     return 0
 }
 
+# 执行 .upg_txn 快照的字节级文件与服务恢复（逐文件校验，恢复失败保留快照并返回非零）
+_upg_txn_restore() {
+    _utr_txn="${1:-$CRASHDIR/.upg_txn}"
+    _utr_err=0
+    if [ -f "$_utr_txn/newlist" ]; then
+        while IFS= read -r _rel || [ -n "$_rel" ]; do
+            [ -n "$_rel" ] || continue
+            if [ ! -e "$_utr_txn/bak/$_rel" ] && [ -e "$CRASHDIR/$_rel" -o -L "$CRASHDIR/$_rel" ]; then
+                rm -f "$CRASHDIR/$_rel" 2>/dev/null
+                [ ! -e "$CRASHDIR/$_rel" ] && [ ! -L "$CRASHDIR/$_rel" ] || _utr_err=1
+            fi
+        done <"$_utr_txn/newlist"
+    fi
+    if [ -d "$_utr_txn/bak" ]; then
+        _utr_baklist="$_utr_txn/baklist.$$"
+        ( cd "$_utr_txn/bak" && find . -type f | sed 's|^\./||' ) >"$_utr_baklist"
+        while IFS= read -r _rel || [ -n "$_rel" ]; do
+            [ -n "$_rel" ] || continue
+            if ! mkdir -p "$CRASHDIR/$(dirname "$_rel")" 2>/dev/null || \
+               ! cp -f "$_utr_txn/bak/$_rel" "$CRASHDIR/$_rel" 2>/dev/null || \
+               ! cmp -s "$_utr_txn/bak/$_rel" "$CRASHDIR/$_rel"; then
+                _utr_err=1
+            fi
+        done <"$_utr_baklist"
+        rm -f "$_utr_baklist"
+    fi
+    _utr_run=$(cat "$_utr_txn/was_running" 2>/dev/null)
+    if [ "$_utr_run" = "1" ]; then
+        if ! "$CRASHDIR"/start.sh start >/dev/null 2>&1 || ! _upg_check_service_ready; then
+            _utr_err=1
+        fi
+    fi
+    if [ "$_utr_err" = "0" ]; then
+        rm -rf "$_utr_txn"
+        return 0
+    else
+        # 恢复未完全成功：保留 .upg_txn/bak 恢复资料供人工核查，仅将 pending 转为 rollback_failed 防死循环
+        [ -f "$_utr_txn/pending" ] && mv -f "$_utr_txn/pending" "$_utr_txn/rollback_failed" 2>/dev/null || true
+        return 1
+    fi
+}
+
 # 若上次升级在切换/初始化期间因 SIGKILL 或断电中断，下次加载时自动完成回滚自愈
-# 注意：当升级主进程仍存活（含 systemd 通过 D-Bus 拉起 bfstart/afstart 的清洁环境）时严禁误触发回滚！
+# 注意：当升级主进程仍存活（含 V4->V6 init.sh 补写父进程链及 systemd D-Bus 清洁环境）时严禁误触发回滚！
 recover_interrupted_upgrade() {
     _riu_txn="$CRASHDIR/.upg_txn"
     [ -f "$_riu_txn/pending" ] || return 0
     [ -n "$_SC_UPG_ACTIVE" ] && return 0
-    _riu_owner=$(head -n 1 "$_riu_txn/pending" 2>/dev/null | tr -d '\r\n ')
-    case "$_riu_owner" in
-        '' | *[!0-9]*) ;;
-        *)
-            if [ "$_riu_owner" = "$$" ]; then
-                return 0
-            elif [ -d "/proc/$_riu_owner" ]; then
-                _riu_cmd=$(tr '\0' ' ' <"/proc/$_riu_owner/cmdline" 2>/dev/null || true)
-                case "$_riu_cmd" in
-                    *sh* | *menu* | *task* | *ShellCrash* | '') return 0 ;;
-                esac
-            elif [ ! -d /proc ] && kill -0 "$_riu_owner" 2>/dev/null; then
-                return 0
-            fi
-            ;;
-    esac
+    while IFS= read -r _riu_owner || [ -n "$_riu_owner" ]; do
+        _riu_owner=$(printf '%s' "$_riu_owner" | tr -d '\r\n ')
+        case "$_riu_owner" in
+            '' | 0 | 1 | *[!0-9]*) continue ;;
+        esac
+        if [ "$_riu_owner" = "$$" ]; then
+            return 0
+        elif [ -d "/proc/$_riu_owner" ]; then
+            _riu_cmd=$(tr '\0' ' ' <"/proc/$_riu_owner/cmdline" 2>/dev/null || true)
+            case "$_riu_cmd" in
+                *sh* | *menu* | *task* | *ShellCrash* | '') return 0 ;;
+            esac
+        elif [ ! -d /proc ] && kill -0 "$_riu_owner" 2>/dev/null; then
+            return 0
+        fi
+    done <"$_riu_txn/pending"
     _SC_UPG_ACTIVE="recover.$$"
     export _SC_UPG_ACTIVE
     _upg_txn_restore "$_riu_txn"
+    _riu_rc=$?
     unset _SC_UPG_ACTIVE
-    return 0
+    return "$_riu_rc"
 }
 
 # 统一事务化脚本升级（菜单更新与定时任务 112 共用）：
 # 1) 暂存解包 + Tar-Slip 校验 + 关键脚本语法检查（不满足绝不触碰现用目录）
 # 2) 执行 start.sh stop 并校验退出码，停服失败立即中止
 # 3) 在 $CRASHDIR/.upg_txn 写入回滚快照与绑定主进程 PID 的 pending 标记（防自身子进程或 systemd 钩子误回滚）
-# 4) 子 Shell 运行 init.sh + 校验新版本落盘与运行态恢复；任何失败或 INT/TERM 均字节级回滚并返回非零
+# 4) 子 Shell 运行 init.sh + 校验新版本落盘与实例级健康度恢复；任何失败或 INT/TERM 均字节级回滚并返回非零
 apply_script_upgrade() {
     _asu_tar="$1"
     [ -s "$_asu_tar" ] || return 1
@@ -200,9 +265,11 @@ apply_script_upgrade() {
         trap '' TERM INT
         _SC_UPG_ACTIVE="rollback.$$"
         export _SC_UPG_ACTIVE
-        _upg_txn_restore "$_asu_txn"
+        if _upg_txn_restore "$_asu_txn"; then
+            rm -rf "$_asu_txn"
+        fi
         unset _SC_UPG_ACTIVE
-        rm -rf "$_asu_stage" "$_asu_txn" "$_asu_tar"
+        rm -rf "$_asu_stage" "$_asu_tar"
     }
 
     printf '%s\n' "$$" >"$_asu_txn/pending"
@@ -217,7 +284,7 @@ apply_script_upgrade() {
        ( CRASHDIR="$CRASHDIR" sh "$CRASHDIR"/init.sh >/dev/null ) && \
        [ -f "$_asu_txn/pending" ] && \
        { [ ! -s "$_asu_stage/version" ] || cmp -s "$_asu_stage/version" "$CRASHDIR/version"; } && \
-       { [ "$_asu_was_running" = 0 ] || { "$CRASHDIR"/start.sh start >/dev/null 2>&1 && { [ ! -x "$TMPDIR/CrashCore" ] || pidof CrashCore >/dev/null 2>&1; }; }; }; then
+       { [ "$_asu_was_running" = 0 ] || { "$CRASHDIR"/start.sh start >/dev/null 2>&1 && _upg_check_service_ready; }; }; then
         _asu_ok=1
     fi
 

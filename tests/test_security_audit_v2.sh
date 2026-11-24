@@ -955,10 +955,190 @@ for lf in 9_upgrade.lang; do
     fi
 done
 
+echo '== 15. V6 复测阻断项与静态审查补充项回归（V4->V6 运行态升级 / 回滚快照保全 / 引号 Sing-Box / ELF API 健康检查）=='
+
+# 15a. 精确复现原版 V4 (1.9.7-hardened.2: 写 0 字节空 pending 且无 _SC_UPG_ACTIVE) 在运行态升级到 V6 (1.9.7-hardened.4)
+V6="$TMP/v6_from_v4"
+mkdir -p "$V6/inst/configs" "$V6/inst/libs" "$V6/inst/starts" "$V6/pkg/libs" "$V6/pkg/starts" "$V6/pkg/menus" "$V6/tmp" "$V6/bin"
+cp "$ROOT/scripts/libs/get_config.sh" "$V6/inst/libs/get_config.sh"
+cp "$ROOT/scripts/libs/set_profile.sh" "$V6/inst/libs/set_profile.sh"
+cp "$ROOT/scripts/libs/set_config.sh" "$V6/pkg/libs/set_config.sh"
+cp "$ROOT/scripts/libs/get_config.sh" "$V6/pkg/libs/get_config.sh"
+cp "$ROOT/scripts/libs/set_profile.sh" "$V6/pkg/libs/set_profile.sh"
+cp "$ROOT/scripts/init.sh" "$V6/pkg/init.sh"
+for f in bfstart.sh afstart.sh fw_stop.sh fw_ipv6_watch.sh; do printf '#!/bin/sh\nexit 0\n' > "$V6/pkg/starts/$f"; done
+for f in task_cmd.sh bot_tg.sh; do printf '#!/bin/sh\nexit 0\n' > "$V6/pkg/menus/$f"; done
+
+# 构造精确复刻 V4 (56a9ce6) 的 set_config.sh：写 0 字节空 pending、不设 _SC_UPG_ACTIVE、子 shell 调 init.sh 再调 start.sh start
+cat > "$V6/inst/libs/set_config.sh" <<'EOF'
+safe_tar_check() { tar -tzf "$1" >/dev/null 2>&1; }
+recover_interrupted_upgrade() {
+    _riu_txn="$CRASHDIR/.upg_txn"
+    [ -f "$_riu_txn/pending" ] || return 0
+    if [ -d "$_riu_txn/bak" ]; then
+        ( cd "$_riu_txn/bak" && find . -type f | sed 's|^\./||' ) | while IFS= read -r _rel; do
+            [ -n "$_rel" ] || continue
+            mkdir -p "$CRASHDIR/$(dirname "$_rel")"
+            cp -f "$_riu_txn/bak/$_rel" "$CRASHDIR/$_rel" 2>/dev/null
+        done
+    fi
+    _riu_run=$(cat "$_riu_txn/was_running" 2>/dev/null)
+    rm -rf "$_riu_txn"
+    [ "$_riu_run" = "1" ] && "$CRASHDIR"/start.sh start >/dev/null 2>&1 || true
+    return 0
+}
+apply_script_upgrade() {
+    _asu_tar="$1"
+    _asu_stage="$TMPDIR/upg_stage.$$"
+    _asu_txn="$CRASHDIR/.upg_txn"
+    _asu_bak="$_asu_txn/bak"
+    _asu_list="$_asu_txn/newlist"
+    rm -rf "$_asu_stage" "$_asu_txn"
+    mkdir -p "$_asu_stage" "$_asu_bak" || return 1
+    tar -zxf "$_asu_tar" -C "$_asu_stage" || return 1
+    _asu_was_running=0
+    [ -n "$(pidof CrashCore 2>/dev/null)" ] && _asu_was_running=1
+    printf '%s\n' "$_asu_was_running" >"$_asu_txn/was_running"
+    "$CRASHDIR"/start.sh stop >/dev/null 2>&1 || return 1
+    ( cd "$_asu_stage" && find . -type f | sed 's|^\./||' ) >"$_asu_list"
+    while IFS= read -r _rel; do
+        [ -n "$_rel" ] && [ -e "$CRASHDIR/$_rel" ] && mkdir -p "$_asu_bak/$(dirname "$_rel")" && cp -f "$CRASHDIR/$_rel" "$_asu_bak/$_rel"
+    done <"$_asu_list"
+    for _cfg in configs/ShellCrash.cfg configs/command.env configs/directories.env; do
+        [ -f "$CRASHDIR/$_cfg" ] && mkdir -p "$_asu_bak/configs" && cp -f "$CRASHDIR/$_cfg" "$_asu_bak/$_cfg"
+    done
+    : >"$_asu_txn/pending"
+    _asu_ok=0
+    if cp -af "$_asu_stage"/. "$CRASHDIR"/ 2>/dev/null && \
+       ( CRASHDIR="$CRASHDIR" sh "$CRASHDIR"/init.sh >/dev/null ) && \
+       { [ "$_asu_was_running" = 0 ] || "$CRASHDIR"/start.sh start >/dev/null 2>&1; }; then
+        _asu_ok=1
+    fi
+    if [ "$_asu_ok" = 1 ]; then
+        rm -rf "$_asu_stage" "$_asu_txn"
+        return 0
+    fi
+    recover_interrupted_upgrade
+    return 1
+}
+EOF
+
+cat > "$V6/bin/pidof" <<EOF
+#!/bin/sh
+[ "\$1" = "CrashCore" ] && [ -f "$V6/tmp/core.alive" ] && { echo 51515; exit 0; }
+exit 1
+EOF
+chmod +x "$V6/bin/pidof"
+: > "$V6/tmp/core.alive"
+
+cat > "$V6/inst/configs/ShellCrash.cfg" <<'EOF'
+#ShellCrash配置文件，不明勿动！
+versionsh_l=1.9.7-hardened.2
+start_old=ON
+firewall_mod=nftables
+crashcore=meta
+my_alias=crash
+EOF
+printf '1.9.7-hardened.2\n' > "$V6/inst/version"
+printf '#!/bin/sh\nexit 0\n' > "$V6/inst/menu.sh"
+printf '#!/bin/sh\nexit 0\n' > "$V6/inst/init.sh"
+cat > "$V6/inst/start.sh" <<EOF
+#!/bin/sh
+# v4-old-start
+. "\$CRASHDIR/libs/get_config.sh"
+[ "\$1" = "stop" ] && rm -f "$V6/tmp/core.alive"
+[ "\$1" = "start" ] && : > "$V6/tmp/core.alive"
+exit 0
+EOF
+chmod +x "$V6/inst/start.sh" "$V6/inst/menu.sh" "$V6/inst/init.sh"
+
+printf '1.9.7-hardened.4\n' > "$V6/pkg/version"
+printf '#!/bin/sh\nexit 0\n' > "$V6/pkg/menu.sh"
+cat > "$V6/pkg/start.sh" <<EOF
+#!/bin/sh
+# v6-new-start
+. "\$CRASHDIR/libs/get_config.sh"
+if [ "\$1" = "start" ]; then
+    env -i PATH="\$PATH" CRASHDIR="\$CRASHDIR" sh -c '. "\$CRASHDIR/libs/get_config.sh"' || exit 1
+    : > "$V6/tmp/core.alive"
+fi
+[ "\$1" = "stop" ] && rm -f "$V6/tmp/core.alive"
+exit 0
+EOF
+chmod +x "$V6/pkg/start.sh" "$V6/pkg/menu.sh" "$V6/pkg/init.sh"
+tar -czf "$V6/v6_pkg.tar.gz" -C "$V6/pkg" .
+
+if PATH="$V6/bin:$PATH" CRASHDIR="$V6/inst" TMPDIR="$V6/tmp" sh -c ". '$V6/inst/libs/set_config.sh'; apply_script_upgrade '$V6/v6_pkg.tar.gz'"; then
+    _v6_obs=$(tr -d '\r\n ' < "$V6/inst/version")
+    if [ "$_v6_obs" = "1.9.7-hardened.4" ] && \
+       grep -q '^versionsh_l=1.9.7-hardened.4$' "$V6/inst/configs/ShellCrash.cfg" && \
+       grep -q '# v6-new-start' "$V6/inst/start.sh" && \
+       [ ! -e "$V6/inst/.upg_txn" ] && [ -f "$V6/tmp/core.alive" ]; then
+        ok "V6: 原版 V4 (1.9.7-hardened.2 空 pending) 运行态直升 1.9.7-hardened.4 落盘成功且不再静默回滚"
+    else
+        bad "V6: V4->V6 运行态升级后版本或文件未落盘 (version=$_v6_obs)"
+    fi
+else
+    bad "V6: V4->V6 运行态升级返回非零"
+fi
+
+# 15b. 回滚阶段若旧服务重启也失败：必须保留 .upg_txn/bak 恢复资料（转为 rollback_failed）并返回非零
+V6_RB="$TMP/v6_rb_keep"
+mkdir -p "$V6_RB/inst/.upg_txn/bak/configs" "$V6_RB/inst/configs" "$V6_RB/inst/libs" "$V6_RB/tmp"
+cp "$ROOT/scripts/libs/set_config.sh" "$V6_RB/inst/libs/set_config.sh"
+printf 'versionsh_l=1.9.7-hardened.3\n' > "$V6_RB/inst/.upg_txn/bak/configs/ShellCrash.cfg"
+printf 'versionsh_l=broken\n' > "$V6_RB/inst/configs/ShellCrash.cfg"
+printf '1\n' > "$V6_RB/inst/.upg_txn/was_running"
+printf '99999999\n' > "$V6_RB/inst/.upg_txn/pending"
+printf '#!/bin/sh\nexit 55\n' > "$V6_RB/inst/start.sh"
+chmod +x "$V6_RB/inst/start.sh"
+if CRASHDIR="$V6_RB/inst" TMPDIR="$V6_RB/tmp" sh -c ". '$V6_RB/inst/libs/set_config.sh'; recover_interrupted_upgrade" >/dev/null 2>&1; then
+    bad "V6: 回滚阶段重启失败时 recover_interrupted_upgrade 不应返回 0"
+else
+    if [ -f "$V6_RB/inst/.upg_txn/bak/configs/ShellCrash.cfg" ] && \
+       [ -f "$V6_RB/inst/.upg_txn/rollback_failed" ] && \
+       [ ! -f "$V6_RB/inst/.upg_txn/pending" ]; then
+        ok "V6: 回滚恢复失败时返回非零并完整保留 .upg_txn/bak 快照资料（标记 rollback_failed）"
+    else
+        bad "V6: 回滚失败时误删了 .upg_txn/bak 恢复资料"
+    fi
+fi
+
+# 15c. 带单引号/双引号的 crashcore='singboxr' 与旧版 clashcore='singbox' 在 init.sh 中均正确生成 sing-box 启动参数
+for _sb_line in "crashcore='singboxr'" 'crashcore="singbox"' "clashcore='singboxr'"; do
+    V6_SB="$TMP/v6_sb_$(echo "$_sb_line" | tr -dc 'a-z')"
+    mkdir -p "$V6_SB/configs"
+    cp -a "$ROOT/scripts"/. "$V6_SB/"
+    cp "$ROOT/version" "$V6_SB/version"
+    printf '#ShellCrash配置文件，不明勿动！\n%s\nstart_old=ON\nfirewall_mod=nftables\nmy_alias=crash\n' "$_sb_line" > "$V6_SB/configs/ShellCrash.cfg"
+    CRASHDIR="$V6_SB" sh "$V6_SB/init.sh" >/dev/null 2>&1
+    if grep -q 'CrashCore run -D \$BINDIR -C \$TMPDIR/jsons' "$V6_SB/configs/command.env"; then
+        ok "V6: init.sh 正确识别 $_sb_line 并生成 Sing-Box 启动命令"
+    else
+        bad "V6: init.sh 未识别 $_sb_line ($(cat "$V6_SB/configs/command.env" 2>/dev/null))"
+    fi
+done
+
+# 15d. 真实 ELF 核心存在但控制器 API 未响应时，_upg_check_service_ready 必须判定失败
+V6_ELF="$TMP/v6_elf_api"
+mkdir -p "$V6_ELF/inst/configs" "$V6_ELF/tmp" "$V6_ELF/bin"
+printf 'db_port=59991\n' > "$V6_ELF/inst/configs/ShellCrash.cfg"
+printf '\177ELFfakebinary' > "$V6_ELF/tmp/CrashCore"
+printf '#!/bin/sh\necho 12345\nexit 0\n' > "$V6_ELF/bin/pidof"
+# 用快速返回非零的 curl 替身模拟控制器端口未监听，使 8 次重试快速失败? 这里只用 1 次? 不，直接让 wget/curl 返回失败则循环 8s，改用 sleep 替身瞬时完成！
+printf '#!/bin/sh\nexit 0\n' > "$V6_ELF/bin/sleep"
+printf '#!/bin/sh\nexit 7\n' > "$V6_ELF/bin/curl"
+chmod +x "$V6_ELF/bin/pidof" "$V6_ELF/bin/sleep" "$V6_ELF/bin/curl"
+if PATH="$V6_ELF/bin:$PATH" CRASHDIR="$V6_ELF/inst" TMPDIR="$V6_ELF/tmp" sh -c ". '$ROOT/scripts/libs/set_config.sh'; _upg_check_service_ready" >/dev/null 2>&1; then
+    bad "V6: 真实 ELF 核心控制器 API 无响应时 _upg_check_service_ready 不应返回 0"
+else
+    ok "V6: 真实 ELF 核心进程存活但控制器 API 未响应时准确拦截并返回非零"
+fi
+
 echo ''
 if [ "$FAIL" -eq 0 ]; then
-    printf '\033[32mV2/V3/V4/V5 全面安全、逻辑与真实 systemd 验收回归测试全部通过\033[0m\n'
+    printf '\033[32mV2/V3/V4/V5/V6 全面安全、逻辑与真实 systemd 验收回归测试全部通过\033[0m\n'
 else
-    printf '\033[31mV2/V3/V4/V5 审计回归测试失败 %d 项\033[0m\n' "$FAIL"
+    printf '\033[31mV2/V3/V4/V5/V6 审计回归测试失败 %d 项\033[0m\n' "$FAIL"
     exit 1
 fi

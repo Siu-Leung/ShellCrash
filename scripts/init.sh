@@ -32,11 +32,34 @@ mv -f /tmp/SC_tmp/* "$CRASHDIR" 2>/dev/null
 ##############################
 #注意目录变更
 CFG_PATH="$CRASHDIR"/configs/ShellCrash.cfg
+# 兼容 V4 (1.9.7-hardened.2) 运行态升级：V4 写入 0 字节空 .upg_txn/pending 后调用新版 init.sh，
+# 在此处将调用链父进程/祖父进程 PID 补写入 pending，防止后续 start.sh start 被误判为崩溃中断而静默回滚
+if [ -f "$CRASHDIR/.upg_txn/pending" ] && [ ! -s "$CRASHDIR/.upg_txn/pending" ]; then
+    _v4_gppid=$(awk '/^PPid:/{print $2}' "/proc/$PPID/status" 2>/dev/null || true)
+    _v4_ggppid=""
+    [ -n "$_v4_gppid" ] && _v4_ggppid=$(awk '/^PPid:/{print $2}' "/proc/$_v4_gppid/status" 2>/dev/null || true)
+    printf '%s\n%s\n%s\n' "$PPID" "$_v4_gppid" "$_v4_ggppid" >"$CRASHDIR/.upg_txn/pending" 2>/dev/null || true
+fi
 . "$CRASHDIR"/libs/set_config.sh
 . "$CRASHDIR"/libs/set_profile.sh
-#初始化
+#初始化（先完成历史配置文件改名与旧键迁移，确保后续 COMMAND 与 systemd 单元生成读取到规范值）
 mkdir -p "$CRASHDIR"/configs
+mv -f "$CRASHDIR"/configs/ShellClash.cfg "$CFG_PATH" 2>/dev/null
 [ -f "$CFG_PATH" ] || echo '#ShellCrash配置文件，不明勿动！' >"$CFG_PATH"
+if grep -qE '(^(clashcore|clash_v)=|=clash\.meta$|ShellClash|^cpucore=armv8$|^redir_mod=(Redir|Tproxy|Tun|混合|纯净)模式$|=(已启用|已开启|未启用|未开启)$)' "$CFG_PATH" 2>/dev/null; then
+    sed -i "s/^clashcore=/crashcore=/" "$CFG_PATH"
+    sed -i "s/^clash_v=/core_v=/" "$CFG_PATH"
+    sed -i "s/=clash\.meta$/=meta/" "$CFG_PATH"
+    sed -i "s/ShellClash/ShellCrash/g" "$CFG_PATH"
+    sed -i "s/^cpucore=armv8$/cpucore=arm64/" "$CFG_PATH"
+    sed -i "s/^redir_mod=Redir模式$/redir_mod=Redir/" "$CFG_PATH"
+    sed -i "s/^redir_mod=Tproxy模式$/redir_mod=Tproxy/" "$CFG_PATH"
+    sed -i "s/^redir_mod=Tun模式$/redir_mod=Tun/" "$CFG_PATH"
+    sed -i "s/^redir_mod=混合模式$/redir_mod=Mix/" "$CFG_PATH"
+    sed -i "s/^redir_mod=纯净模式$/firewall_area=4/" "$CFG_PATH"
+    sed -i 's/=\(已启用\|已开启\)$/=ON/'  "$CFG_PATH"
+    sed -i 's/=\(未启用\|未开启\)$/=OFF/' "$CFG_PATH"
+fi
 _init_had_cfg=0
 _init_env_alias="$my_alias"
 [ -s "$CFG_PATH" ] && grep -q '=' "$CFG_PATH" 2>/dev/null && _init_had_cfg=1
@@ -107,7 +130,7 @@ else
     . "$DIRECTORIES_FILE"
 fi
 [ -f "$COMMAND_FILE" ] || : > "$COMMAND_FILE"
-if grep -qE '(crashcore|clashcore)=singbox' "$CFG_PATH" 2>/dev/null; then
+if grep -qE "^(crashcore|clashcore)=['\"]?singbox" "$CFG_PATH" 2>/dev/null; then
     COMMAND='"$TMPDIR/CrashCore run -D $BINDIR -C $TMPDIR/jsons"'
     _systemd_exec="$TMPDIR/CrashCore run -D $BINDIR -C $TMPDIR/jsons"
 else
@@ -138,7 +161,7 @@ if [ -n "$profile" ]; then
     set_profile "$profile"
     #适配zsh环境变量
     zsh --version >/dev/null 2>&1 && [ -z "$(cat $HOME/.zshrc 2>/dev/null | grep CRASHDIR)" ] && set_profile "$HOME/.zshrc"
-    if [ "$_init_had_cfg" = 0 ] || [ -n "$_init_env_alias" ] || ! grep -q '^my_alias=' "$CFG_PATH" 2>/dev/null; then
+    if [ "$_init_had_cfg" = 0 ] || [ -n "$_init_env_alias" ]; then
         [ -n "$my_alias" ] && setconfig my_alias "$my_alias"
     fi
 else
@@ -232,8 +255,6 @@ done
 for file in /etc/init.d/firewall /etc/init.d/firewall.bak; do
     [ -f "$file" ] && sed -i "s#$CRASHDIR/task/affirewall#$TASKCFGDIR/affirewall#g" "$file" 2>/dev/null
 done
-#配置文件改名
-mv -f "$CRASHDIR"/configs/ShellClash.cfg "$CFG_PATH" 2>/dev/null
 #数据库改名
 mv -f "$CRASHDIR"/geosite.dat "$CRASHDIR"/GeoSite.dat 2>/dev/null
 mv -f "$CRASHDIR"/ruleset/geosite-cn.srs "$CRASHDIR"/ruleset/cn.srs 2>/dev/null
@@ -258,21 +279,6 @@ rm -rf "$CRASHDIR"/rules
 for file in webget.sh misnap_init.sh core.new configs/ShellCrash.cfg.bak; do
     rm -f "$CRASHDIR/$file"
 done
-#旧版变量改名（仅在检测到历史键名/中文开关值时才改写文件，保持常规重装时配置字节不变）
-if grep -qE '(^(clashcore|clash_v)=|=clash\.meta$|ShellClash|^cpucore=armv8$|^redir_mod=(Redir|Tproxy|Tun|混合|纯净)模式$|=(已启用|已开启|未启用|未开启)$)' "$CFG_PATH" 2>/dev/null; then
-    sed -i "s/^clashcore=/crashcore=/" "$CFG_PATH"
-    sed -i "s/^clash_v=/core_v=/" "$CFG_PATH"
-    sed -i "s/=clash\.meta$/=meta/" "$CFG_PATH"
-    sed -i "s/ShellClash/ShellCrash/g" "$CFG_PATH"
-    sed -i "s/^cpucore=armv8$/cpucore=arm64/" "$CFG_PATH"
-    sed -i "s/^redir_mod=Redir模式$/redir_mod=Redir/" "$CFG_PATH"
-    sed -i "s/^redir_mod=Tproxy模式$/redir_mod=Tproxy/" "$CFG_PATH"
-    sed -i "s/^redir_mod=Tun模式$/redir_mod=Tun/" "$CFG_PATH"
-    sed -i "s/^redir_mod=混合模式$/redir_mod=Mix/" "$CFG_PATH"
-    sed -i "s/^redir_mod=纯净模式$/firewall_area=4/" "$CFG_PATH"
-    sed -i 's/=\(已启用\|已开启\)$/=ON/'  "$CFG_PATH"
-    sed -i 's/=\(未启用\|未开启\)$/=OFF/' "$CFG_PATH"
-fi
 
 printf '\033[32m脚本初始化完成,请输入\033[30;47m %s \033[0;33m命令开始使用！\033[0m\n' "$my_alias"
 

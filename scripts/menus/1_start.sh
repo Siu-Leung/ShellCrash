@@ -41,18 +41,22 @@ start_core() {
             . "$CRASHDIR/menus/providers_$CORE_TYPE.sh" && gen_providers
         fi
     elif [ -s "$core_config" ] || [ -n "$Url" ] || [ -n "$Https" ] || [ "$local_sub" = "ON" ]; then
-        "$CRASHDIR/start.sh" start
+        if ! "$CRASHDIR/start.sh" start; then
+            return 1
+        fi
 
         # 循环检测服务启动状态
         . "$CRASHDIR/libs/start_wait.sh"
 
-        [ -n "$test" ] || pidof CrashCore >/dev/null && {
+        if [ -n "$test" ] || pidof CrashCore >/dev/null 2>&1; then
             # 启动 TG 机器人
             if [ "$bot_tg_service" = ON ]; then
                 . "$CRASHDIR/menus/bot_tg_service.sh" && bot_tg_start
             fi
             startover
-        }
+        else
+            return 1
+        fi
     else
         comp_box "\033[31m$START_NO_CORE_CFG_IMPORT_FIRST\033[0m"
         . "$CRASHDIR/menus/6_core_config.sh" && set_core_config

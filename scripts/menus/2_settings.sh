@@ -193,13 +193,46 @@ settings() {
                 line_break
                 separator_line "="
                 if [ -f "$BACK_TAR" ]; then
-                    tar -zcf "$TMPDIR/configs.tar.gz" -C "$CRASHDIR/configs/" .
+                    _rst_stage="$TMPDIR/cfg_restore.$$"
+                    _rst_prev="$TMPDIR/configs_prev.$$.tar.gz"
+                    rm -rf "$_rst_stage" "$_rst_prev"
+                    mkdir -p "$_rst_stage"
+                    if ! safe_tar_check "$BACK_TAR" || \
+                       ! tar -zxf "$BACK_TAR" -C "$_rst_stage" 2>/dev/null || \
+                       [ ! -s "$_rst_stage/ShellCrash.cfg" ]; then
+                        rm -rf "$_rst_stage" "$_rst_prev"
+                        content_line "\033[31m$COMMON_FAILED\033[0m"
+                        separator_line "="
+                        sleep 1
+                        continue
+                    fi
+                    if ! tar -zcf "$_rst_prev" -C "$CRASHDIR/configs/" . 2>/dev/null; then
+                        rm -rf "$_rst_stage" "$_rst_prev"
+                        content_line "\033[31m$SET_BACKUP_FAIL\033[0m"
+                        separator_line "="
+                        sleep 1
+                        continue
+                    fi
                     rm -rf "$CRASHDIR"/configs/*
-                    tar -zxf "$BACK_TAR" -C "$CRASHDIR"/configs
-                    mv -f "$TMPDIR/configs.tar.gz" "$BACK_TAR"
-                    content_line "\033[32m$SET_RESTORE_OK $BACK_TAR\033[0m"
+                    if cp -af "$_rst_stage"/. "$CRASHDIR"/configs/ 2>/dev/null && [ -s "$CRASHDIR/configs/ShellCrash.cfg" ]; then
+                        mv -f "$_rst_prev" "$BACK_TAR"
+                        rm -rf "$_rst_stage"
+                        content_line "\033[32m$SET_RESTORE_OK $BACK_TAR\033[0m"
+                    else
+                        # 切换失败：立即还原备份的现用配置
+                        rm -rf "$CRASHDIR"/configs/*
+                        tar -zxf "$_rst_prev" -C "$CRASHDIR"/configs 2>/dev/null
+                        rm -rf "$_rst_stage" "$_rst_prev"
+                        content_line "\033[31m$COMMON_FAILED\033[0m"
+                        separator_line "="
+                        sleep 1
+                        continue
+                    fi
                 else
                     content_line "\033[31m$SET_BACKUP_MISS\033[0m"
+                    separator_line "="
+                    sleep 1
+                    continue
                 fi
                 ;;
             3)
@@ -211,6 +244,9 @@ settings() {
                     content_line "\033[32m$SET_RESET_OK\033[0m"
                 else
                     content_line "\033[31m$SET_RESET_FAIL\033[0m"
+                    separator_line "="
+                    sleep 1
+                    continue
                 fi
                 ;;
             *)
@@ -242,6 +278,10 @@ settings() {
                 echo en >"$CRASHDIR"/configs/i18n.cfg
                 msg_alert "\033[32mLanguage switched successfully! Please re-run the script!\033[0m"
                 ;;
+            *)
+                errornum
+                continue
+                ;;
             esac
             line_break
             exit 0
@@ -263,6 +303,10 @@ settings() {
             2)
                 setconfig tui_type 'tui_lite'
                 . "$CRASHDIR"/menus/tui_lite.sh
+                ;;
+            *)
+                errornum
+                continue
                 ;;
             esac
             msg_alert "\033[32m$SET_SWITCH_OK\033[0m"
@@ -423,14 +467,22 @@ inputport() {
     fi
 
     local ports_to_check=""
+    local _tp_port="${tproxy_port:-$((redir_port + 1))}"
     [ "$xport" != "mix_port" ] && ports_to_check="$ports_to_check|$mix_port"
-    [ "$xport" != "redir_port" ] && ports_to_check="$ports_to_check|$redir_port"
+    [ "$xport" != "redir_port" ] && ports_to_check="$ports_to_check|$redir_port|$_tp_port"
     [ "$xport" != "dns_port" ] && ports_to_check="$ports_to_check|$dns_port"
     [ "$xport" != "db_port" ] && ports_to_check="$ports_to_check|$db_port"
 
     if echo "$ports_to_check|" | grep -q "|$portx|"; then
         msg_alert "\033[31m$CHECK_PORT_DUP_ERR\033[0m"
         return 1
+    fi
+    if [ "$xport" = "redir_port" ]; then
+        _next_port=$((portx + 1))
+        if [ "$_next_port" -gt 65535 ] || echo "$ports_to_check|" | grep -q "|$_next_port|"; then
+            msg_alert "\033[31m$CHECK_PORT_DUP_ERR\033[0m"
+            return 1
+        fi
     fi
 
     setconfig "$xport" "$portx"

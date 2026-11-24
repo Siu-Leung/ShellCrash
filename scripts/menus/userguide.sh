@@ -65,12 +65,12 @@ forwhat() {
                 setconfig cn_ipv6_route ON
             }
             # 设置开机启动
-            if [ -f /etc/rc.common ] && [ "$(cat /proc/1/comm)" = "procd" ]; then
+            if [ -f /etc/rc.common ] && [ "$(cat /proc/1/comm 2>/dev/null)" = "procd" ]; then
                 /etc/init.d/shellcrash enable
             fi
 
-            ckcmd systemctl && [ "$(cat /proc/1/comm)" = "systemd" ] && systemctl enable shellcrash.service >/dev/null 2>&1
-            grep -q 's6' /proc/1/comm && enable_s6_autostart_marks
+            ckcmd systemctl && [ "$(cat /proc/1/comm 2>/dev/null)" = "systemd" ] && systemctl enable shellcrash.service >/dev/null 2>&1
+            grep -q 's6' /proc/1/comm 2>/dev/null && enable_s6_autostart_marks
             rm -rf "$CRASHDIR"/.dis_startup
             autostart=enable
             # 检测IP转发

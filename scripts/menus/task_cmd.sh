@@ -26,14 +26,22 @@ task_logger(){
 }
 
 #任务命令
-check_update(){ #检查更新工具（安全加固：纯数据解析 bin/version，禁止 source 执行远端文件）
-    get_bin "$TMPDIR"/crashversion "$1" echooff
-    [ "$?" = "0" ] && load_version_file "$TMPDIR"/crashversion
-    rm -rf "$TMPDIR"/crashversion
+check_update(){ #检查更新工具（安全加固：纯数据解析 bin/version，禁止 source 执行远端文件；下载失败返回非零）
+    if get_bin "$TMPDIR"/crashversion "$1" echooff; then
+        load_version_file "$TMPDIR"/crashversion
+        rm -rf "$TMPDIR"/crashversion
+        return 0
+    else
+        rm -rf "$TMPDIR"/crashversion
+        return 1
+    fi
 }
 update_core(){ #自动更新内核（带启动失败自动回滚）
     #检查版本
-    check_update bin/version
+    if ! check_update bin/version; then
+        task_logger "$TASK_CMD_CORE_DL_FAIL"
+        return 1
+    fi
     # 安全加固：eval 取间接变量有注入风险，改用白名单函数（get_config.sh 已在本文件头部加载）
     crash_v_new=$(get_version_var "${crashcore}_v")
     if [ -z "$crash_v_new" -o "$crash_v_new" = "$core_v" ];then
@@ -66,13 +74,20 @@ update_core(){ #自动更新内核（带启动失败自动回滚）
         esac
     fi
 }
-update_scripts(){ #自动更新脚本（安全加固：暂存校验 + 备份切换 + 失败自动回滚）
-    #检查版本（version 文件为纯版本号文本，如 1.9.7-hardened.1）
+update_scripts(){ #自动更新脚本（调用统一事务化升级 apply_script_upgrade）
+    #检查版本（version 文件为纯版本号文本，如 1.9.7-hardened.2）
     versionsh=""
-    get_bin "$TMPDIR"/crashversion version echooff
-    [ "$?" = "0" ] && versionsh=$(head -n 1 "$TMPDIR"/crashversion | tr -d '\r\n ')
+    if ! get_bin "$TMPDIR"/crashversion version echooff; then
+        rm -rf "$TMPDIR"/crashversion
+        task_logger "$TASK_CMD_CORE_DL_FAIL"
+        return 1
+    fi
+    versionsh=$(head -n 1 "$TMPDIR"/crashversion | tr -d '\r\n ')
     rm -rf "$TMPDIR"/crashversion
-    if [ -z "$versionsh" -o "$versionsh" = "$versionsh_l" ];then
+    if [ -z "$versionsh" ]; then
+        task_logger "$TASK_CMD_CORE_DL_FAIL"
+        return 1
+    elif [ "$versionsh" = "$versionsh_l" ];then
         task_logger "$TASK_CMD_SCRIPT_SKIP"
         return 0
     else
@@ -82,40 +97,25 @@ update_scripts(){ #自动更新脚本（安全加固：暂存校验 + 备份切�
             task_logger "$TASK_CMD_CORE_DL_FAIL"
             return 1
         fi
-        _upg_stage="$TMPDIR/upg_stage.$$"
-        _upg_bak="$TMPDIR/upg_bak.$$"
-        rm -rf "$_upg_stage" "$_upg_bak"
-        mkdir -p "$_upg_stage" "$_upg_bak"
-        if ! safe_tar_check "$TMPDIR/ShellCrash.tar.gz" || \
-           ! tar -zxf "$TMPDIR"/ShellCrash.tar.gz ${tar_para} -C "$_upg_stage" || \
-           [ ! -s "$_upg_stage/start.sh" ] || [ ! -s "$_upg_stage/menu.sh" ] || [ ! -s "$_upg_stage/init.sh" ] || \
-           ! sh -n "$_upg_stage/start.sh" 2>/dev/null || ! sh -n "$_upg_stage/menu.sh" 2>/dev/null || ! sh -n "$_upg_stage/init.sh" 2>/dev/null; then
-            rm -rf "$_upg_stage" "$_upg_bak" "$TMPDIR"/ShellCrash.tar.gz
-            task_logger "$TASK_CMD_SCRIPT_UNZIP_FAIL"
-            return 1
-        fi
-        for _item in start.sh menu.sh init.sh version libs menus starts lang task; do
-            [ -e "$CRASHDIR/$_item" ] && cp -a "$CRASHDIR/$_item" "$_upg_bak/" 2>/dev/null
-        done
-        _was_running=0
-        [ -n "$(pidof CrashCore 2>/dev/null)" ] && _was_running=1
-        "$CRASHDIR"/start.sh stop
-        if cp -af "$_upg_stage"/. "$CRASHDIR"/ && . "$CRASHDIR"/init.sh >/dev/null && { [ "$_was_running" = 0 ] || "$CRASHDIR"/start.sh start; }; then
-            rm -rf "$_upg_stage" "$_upg_bak" "$TMPDIR"/ShellCrash.tar.gz
+        if apply_script_upgrade "$TMPDIR/ShellCrash.tar.gz"; then
+            rm -rf "$TMPDIR"/ShellCrash.tar.gz
             return 0
         else
-            cp -af "$_upg_bak"/. "$CRASHDIR"/ 2>/dev/null
-            [ "$_was_running" = 1 ] && "$CRASHDIR"/start.sh start >/dev/null 2>&1
-            rm -rf "$_upg_stage" "$_upg_bak" "$TMPDIR"/ShellCrash.tar.gz
+            rm -rf "$TMPDIR"/ShellCrash.tar.gz
             task_logger "$TASK_CMD_SCRIPT_UNZIP_FAIL"
             return 1
         fi
     fi
 }
-update_mmdb(){ #自动更新数据库
+update_mmdb(){ #自动更新数据库（任一文件更新失败时透传非零退出码）
+    _mmdb_fail=0
     getgeo(){
         #检查版本
-        check_update bin/version
+        if ! check_update bin/version; then
+            task_logger "$TASK_CMD_DB_DL_FAIL_PREFIX$2$TASK_CMD_DB_DL_FAIL_SUFFIX"
+            _mmdb_fail=1
+            return 1
+        fi
         geo_v="$(echo $2 | awk -F "." '{print $1}')_v" #获取版本号类型比如Country_v
         geo_v_new=$GeoIP_v
         # 安全加固：同上，geo_v 由文件名拼接而来，改白名单读取杜绝注入
@@ -128,12 +128,15 @@ update_mmdb(){ #自动更新数据库
             if [ "$?" != "0" ];then
                 task_logger "$TASK_CMD_DB_DL_FAIL_PREFIX$2$TASK_CMD_DB_DL_FAIL_SUFFIX"
                 rm -rf "$TMPDIR"/$1
+                _mmdb_fail=1
+                return 1
             else
                 mv -f "$TMPDIR"/$1 "$BINDIR"/$1
                 setconfig $geo_v $GeoIP_v
                 task_logger "$TASK_CMD_DB_OK_PREFIX$2$TASK_CMD_DB_OK_SUFFIX"
             fi
         fi
+        return 0
     }
     [ -n "${cn_mini_v}" ] && { [ -s "$BINDIR"/Country.mmdb ] || [ -s "$CRASHDIR"/Country.mmdb ]; } && getgeo Country.mmdb cn_mini.mmdb
     [ -n "${china_ip_list_v}" ] && { [ -s "$BINDIR"/cn_ip.txt ] || [ -s "$CRASHDIR"/cn_ip.txt ]; } && getgeo cn_ip.txt china_ip_list.txt
@@ -141,7 +144,7 @@ update_mmdb(){ #自动更新数据库
     [ -n "${geosite_v}" ] && { [ -s "$BINDIR"/GeoSite.dat ] || [ -s "$CRASHDIR"/GeoSite.dat ]; } && getgeo GeoSite.dat geosite.dat
     [ -n "${geoip_cn_v}" ] && { [ -s "$BINDIR"/geoip.db ] || [ -s "$CRASHDIR"/geoip.db ]; } && getgeo geoip.db geoip_cn.db
     [ -n "${geosite_cn_v}" ] && { [ -s "$BINDIR"/geosite.db ] || [ -s "$CRASHDIR"/geosite.db ]; } && getgeo geosite.db geosite_cn.db
-    return 0
+    return "$_mmdb_fail"
 }
 reset_firewall(){ #重设透明路由防火墙
     "$CRASHDIR"/start.sh stop_firewall

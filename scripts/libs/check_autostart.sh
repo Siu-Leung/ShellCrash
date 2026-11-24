@@ -20,12 +20,12 @@ migrate_s6_autostart_mark() {
 check_autostart(){
     if [ "$start_old" = ON ];then
         [ ! -f "$CRASHDIR"/.dis_startup ] && return 0
-    elif [ -f /etc/rc.common -a "$(cat /proc/1/comm)" = "procd" ]; then
+    elif [ -f /etc/rc.common -a "$(cat /proc/1/comm 2>/dev/null)" = "procd" ]; then
         [ -n "$(find /etc/rc.d -name '*shellcrash')" ] && return 0
         [ ! -f "$CRASHDIR"/.dis_startup ] && return 0
     elif ckcmd systemctl; then
         [ "$(systemctl is-enabled shellcrash.service 2>&1)" = enabled ] && return 0
-    elif grep -q 's6' /proc/1/comm; then
+    elif grep -q 's6' /proc/1/comm 2>/dev/null; then
         migrate_s6_autostart_mark
         [ -f "$CRASHDIR/configs/.autostart" ] && [ ! -f "$CRASHDIR"/.dis_startup ] && return 0
     elif rc-status -r >/dev/null 2>&1; then

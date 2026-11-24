@@ -548,8 +548,9 @@ log_pusher() {
         c)
             comp_box "$TOOLS_DEVICE_NAME_HINT" \
                 "$TOOLS_DEVICE_NAME_BACK"
-            read -r -p "$TOOLS_AUTO_SSH_INPUT" device_name
-            if [ -n "$device_name" ]; then
+            read -r -p "$TOOLS_AUTO_SSH_INPUT" _new_device_name
+            if [ -n "$_new_device_name" ]; then
+                device_name="$_new_device_name"
                 setconfig_quote device_name "$device_name"
             fi
             ;;

@@ -6,7 +6,7 @@ bot_tg_start(){
     start_legacy "$CRASHDIR/menus/bot_tg.sh" 'bot_tg'
 }
 bot_tg_stop(){
-    cronload | grep -q 'TG_BOT' && cronset 'TG_BOT'
+    cronload 2>/dev/null | grep -q 'TG_BOT' && cronset 'TG_BOT'
     [ -f "$TMPDIR/bot_tg.pid" ] && kill -TERM "$(cat "$TMPDIR/bot_tg.pid")" 2>/dev/null
     killall bot_tg.sh 2>/dev/null
     rm -f "$TMPDIR/bot_tg.pid"

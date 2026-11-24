@@ -32,12 +32,12 @@ start_firewall(){
 is_root_user() {
     [ "$(id -u 2>/dev/null)" = "0" ] || [ "$USER" = "root" ]
 }
-#保守模式启动
+#保守模式启动（同步执行 bfstart 以便前置校验失败时立即返回非零）
 start_l(){
-    bfstart && {
-        . "$CRASHDIR"/starts/start_legacy.sh
-        start_legacy "$COMMAND" 'shellcrash'
-    } && afstart &
+    bfstart || return 1
+    . "$CRASHDIR"/starts/start_legacy.sh
+    start_legacy "$COMMAND" 'shellcrash'
+    afstart &
 }
 
 case "$1" in
@@ -53,16 +53,16 @@ start)
         . "$CRASHDIR"/starts/fw_start.sh
     elif [ "$start_old" = "ON" ]; then
         start_l
-    elif [ -f /etc/rc.common ] && grep -q 'procd' /proc/1/comm; then
+    elif [ -f /etc/rc.common ] && grep -q 'procd' /proc/1/comm 2>/dev/null; then
         /etc/init.d/shellcrash start
-    elif is_root_user && grep -q 'systemd' /proc/1/comm; then
+    elif is_root_user && grep -q 'systemd' /proc/1/comm 2>/dev/null; then
         FragmentPath=$(systemctl show -p FragmentPath shellcrash | sed 's/FragmentPath=//')
         [ -f "$FragmentPath" ] && {
             sed -i "s#^ExecStart=.*#ExecStart=$COMMAND#" "$FragmentPath"
             systemctl daemon-reload
         }
-        systemctl start shellcrash.service || . "$CRASHDIR"/starts/start_error.sh
-    elif grep -q 's6' /proc/1/comm; then
+        systemctl start shellcrash.service || { . "$CRASHDIR"/starts/start_error.sh; exit 1; }
+    elif grep -q 's6' /proc/1/comm 2>/dev/null; then
         bfstart && /command/s6-svc -u /run/service/shellcrash && {
             [ ! -f "$CRASHDIR"/.dis_startup ] && enable_s6_autostart_marks
             afstart &
@@ -77,8 +77,10 @@ start)
 stop)
     logger ShellCrash服务即将关闭......
     [ -n "$(pidof CrashCore)" ] && web_save #保存面板配置
-    #清理定时任务
-    cronupdate awk 'NF && !/start_legacy_wd.sh|运行时每/' || exit 1
+    #清理定时任务（若宿主存在 cron 子系统则严格校验清理结果）
+    if crontab -h 2>&1 | grep -q '\-l' || { [ -d "$crondir" ] && [ -r "$crondir" ] && [ -x "$crondir" ]; }; then
+        cronupdate awk 'NF && !/start_legacy_wd.sh|运行时每/' || exit 1
+    fi
     #停止tg_bot
     . "$CRASHDIR"/menus/bot_tg_service.sh && bot_tg_stop
     #多种方式结束进程
@@ -86,11 +88,11 @@ stop)
         kill -TERM "$(cat "$TMPDIR/shellcrash.pid")" 2>/dev/null
         rm -f "$TMPDIR/shellcrash.pid"
         stop_firewall
-    elif is_root_user && grep -q 'systemd' /proc/1/comm; then
+    elif is_root_user && grep -q 'systemd' /proc/1/comm 2>/dev/null; then
         systemctl stop shellcrash.service >/dev/null 2>&1
-    elif [ -f /etc/rc.common ] && grep -q 'procd' /proc/1/comm; then
+    elif [ -f /etc/rc.common ] && grep -q 'procd' /proc/1/comm 2>/dev/null; then
         /etc/init.d/shellcrash stop >/dev/null 2>&1
-    elif grep -q 's6' /proc/1/comm; then
+    elif grep -q 's6' /proc/1/comm 2>/dev/null; then
         /command/s6-svc -d /run/service/shellcrash
         stop_firewall
     elif rc-status -r >/dev/null 2>&1; then

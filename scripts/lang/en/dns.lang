@@ -94,3 +94,15 @@ DNS_DIRECT_TEST_NOT_IN_LIST="✗ This domain is not in the direct DNS list"
 #===== DNS Failover =====
 DNS_ADV_FAILOVER="PROXY-DNS Failover"
 DNS_ADV_FAILOVER_TIP="Fallback to DIRECT-DNS when proxy DNS fails or returns no IP (Mihomo Route mode + Leak Protect ON only)"
+
+#===== Fake-IP Range =====
+DNS_FAKEIP_CONFLICT_WARN="Warning: local address overlaps with fake-ip range, routing may break:"
+DNS_FAKEIP_CONFLICT_BLOCK="Rejected: new fake-ip range overlaps with local interface IP:"
+DNS_FAKEIP_NO_CONFLICT="No local subnet conflict detected"
+DNS_FAKEIP_RESTART_HINT="Restart the service after changes; firewall rules will adopt the new range."
+DNS_FAKEIP_EDIT_IPV4="Edit IPv4 fake-ip range"
+DNS_FAKEIP_INPUT_CIDR="Enter new IPv4 CIDR (e.g. 198.18.0.0/15) > "
+DNS_FAKEIP_ERR_FORMAT="Invalid format: CIDR notation required (e.g. 198.18.0.0/15)"
+DNS_FAKEIP_ERR_IPV4="Invalid IPv4 address (each octet must be 0-255)"
+DNS_FAKEIP_ERR_MASK="Prefix length must be between 8 and 30"
+DNS_FAKEIP_SAVED="fakeip4 saved (restart service to take effect):"

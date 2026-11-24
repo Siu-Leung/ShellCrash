@@ -227,7 +227,7 @@ load_ddns() {
             break
         elif ! printf '%s' "$num" | grep -qE '^[0-9]+$'; then
             msg_alert "\033[33m$DDNS_INPUT_NUM_ERROR\033[0m"
-        elif [ "$num" -gt "$nr" ]; then
+        elif [ "$num" -eq $((nr + 1)) ]; then
             set_ddns_type
         elif [ "$num" -gt 0 ] && [ "$num" -le "$nr" ]; then
             service=$(sed -n "${num}p" "$tmp_dir")

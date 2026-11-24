@@ -7,12 +7,12 @@ __IS_MODULE_4_SETBOOT_LOADED=1
 load_lang setboot
 
 allow_autostart() {
-    if [ -f /etc/rc.common ] && [ "$(cat /proc/1/comm)" = "procd" ]; then
+    if [ -f /etc/rc.common ] && [ "$(cat /proc/1/comm 2>/dev/null)" = "procd" ]; then
         /etc/init.d/shellcrash enable
     fi
 
     ckcmd systemctl && systemctl enable shellcrash.service >/dev/null 2>&1
-    grep -q 's6' /proc/1/comm && enable_s6_autostart_marks
+    grep -q 's6' /proc/1/comm 2>/dev/null && enable_s6_autostart_marks
     rc-status -r >/dev/null 2>&1 && rc-update add shellcrash default >/dev/null 2>&1
     rm -rf "$CRASHDIR"/.dis_startup
 }
@@ -20,7 +20,7 @@ allow_autostart() {
 disable_autostart() {
     [ -d /etc/rc.d ] && cd /etc/rc.d && rm -rf *shellcrash >/dev/null 2>&1 && cd - >/dev/null
     ckcmd systemctl && systemctl disable shellcrash.service >/dev/null 2>&1
-    grep -q 's6' /proc/1/comm && disable_s6_autostart_marks
+    grep -q 's6' /proc/1/comm 2>/dev/null && disable_s6_autostart_marks
     rc-status -r >/dev/null 2>&1 && rc-update del shellcrash default >/dev/null 2>&1
     touch "$CRASHDIR"/.dis_startup
 }
@@ -74,7 +74,7 @@ setboot() {
                 "$CRASHDIR"/start.sh stop
                 msg_alert "\033[33m$SETBOOT_OLDMODE_ON\033[0m"
             else
-                if grep -qE 'procd|systemd|s6' /proc/1/comm || rc-status -r >/dev/null 2>&1; then
+                if grep -qE 'procd|systemd|s6' /proc/1/comm 2>/dev/null || rc-status -r >/dev/null 2>&1; then
                     "$CRASHDIR"/start.sh cronset "$SETBOOT_CRON_INIT"
                     start_old=OFF
                     setconfig start_old "$start_old"
@@ -105,7 +105,7 @@ setboot() {
             if [ "$mini_clash" = "OFF" ]; then
                 if [ "$dir_size" -gt 20480 ]; then
                     msg_alert "\033[33m$SETBOOT_MINI_NEEDED_NO\033[0m"
-                elif [ "$start_old" != 'ON' ] && [ "$(cat /proc/1/comm)" = "systemd" ]; then
+                elif [ "$start_old" != 'ON' ] && [ "$(cat /proc/1/comm 2>/dev/null)" = "systemd" ]; then
                     msg_alert "\033[33m$SETBOOT_SYSTEMD_WARN\033[0m"
                 else
                     [ "$BINDIR" = "$CRASHDIR" ] && BINDIR="$TMPDIR"

@@ -53,6 +53,20 @@
    - 删除含注入风险或失效的 `test.yaml`、`release_new_version.yaml`、`docker_readme_push.yaml`；`core_easy_update.yaml` 补齐 `singbox` 的 `tar.gz` 构建；`update_singbox_core.yaml` 按实际检出 ref 记录版本；将推送锁下沉至 `push_to_git` 作业级消除嵌套并发死锁风险；`docker.yaml` 在未配置 Docker Hub Secrets 时降级为本地构建校验；新增 `ci.yml` 在每次推送 `dev` 时自动运行 POSIX `sh` / BusyBox `ash` 语法检查、全套离线回归测试与 `ShellCrash.tar.gz` 字节一致性核验。
    - 明确区分 **CI 构建时取材上游**（MetaCubeX、SagerNet、reF1nd、DustinWin、Zephyruso、Alpine/s6）与 **运行时本仓库分发**（`Siu-Leung/ShellCrash@dev` & `@update`）。
 
+## V4 实机与全量故障注入复核修复（`1.9.7-hardened.2`）
+
+1. **损坏备份恢复保护（`2_settings.sh`）**：先以 `safe_tar_check` 校验并在隔离暂存目录解包核验 `ShellCrash.cfg`，通过后才备份并切换现用配置，杜绝损坏备份清空配置却误报“已还原”。
+2. **统一事务化脚本升级与字节幂等配置（`set_config.sh` / `init.sh` / `9_upgrade.sh` / `task_cmd.sh` / `core_tools.sh`）**：
+   - `setconfig` 在键值已唯一存在且完全一致时零改写返回，`init.sh` 保留已有配置字段，确保同版本重装/覆盖时 `ShellCrash.cfg` 字节 100% 不变。
+   - 新增统一事务升级函数 `apply_script_upgrade()`：子 Shell 运行 `init.sh` 捕获 `exit`、安装 `INT/TERM` 回滚陷阱、校验 `start.sh stop/start` 状态、失败时字节级还原旧脚本与旧配置并清理全部新增残留文件。
+   - `setscripts()` 严格检查 `getscripts` 返回值不再误报成功；`getdb()`/`dbdir()`/`setdb()` 先暂存校验面板压缩包再原子替换；任务 `111`/`112`/`113` 均在版本或 Geo 下载失败时返回非零。
+3. **内核配置与 Sing-BoxR 兼容性修复（`clash_modify.sh` / `local_sub_convert.sh` / `providers_singbox.sh` / `singbox_modify.sh`）**：
+   - `clash_modify.sh` 修复 `proxies: []` 误生成空 `- ` 节点导致 Mihomo 启动报 `proxy 0: missing type` 的缺陷，并对 YAML flow DNS 列表加单引号兼容 `https://[IPv6]:port` DoH。
+   - `local_sub_convert.sh` & `providers_singbox.sh` 将 Sing-BoxR 节点 `include`/`exclude` 筛选移至 `urltest` 出站对象（修复 `providers[0].include/exclude: unknown field`）；对标准版 `singbox` 提前明确提示不支持 Sing-BoxR provider 模板；`local_fallback_cached_provider` 扩展支持 `.json` 缓存；合并后额外运行 `CrashCore check` 校验；`singbox_modify.sh` 将 `doh://`/`dot://` 归一化为 `https`/`tls`。
+4. **菜单校验与本地化修复（`dns.sh` / `2_settings.sh` / `7_gateway.sh` / `8_tools.sh` / `9_upgrade.sh` / `ddns.sh` / `menu.sh`）**：
+   - `dns.sh` 严格校验 IPv4 八位组 `0-255`、保存前拦截与本机接口重叠的 Fake-IP 网段并补齐全套英文翻译。
+   - `2_settings.sh` 端口冲突检查覆盖 `tproxy_port`（`redir_port+1`）并修复非法语言/布局选项行为；`7_gateway.sh` 取消关闭 WAN 防火墙不再写盘；`ddns.sh` 拒绝越界序号；`8_tools.sh` / `9_upgrade.sh` 取消输入不再污染会话变量并移除误导性 `stable`/`master` 选项；`menu.sh` 补齐 `crash doctor` 英文帮助说明。
+
 ## 允许的外发通信范围
 
 - **用户原始订阅源**：本地拉取引擎仅直连用户自己配置的订阅 URL，绝不发送给任何第三方转换服务。

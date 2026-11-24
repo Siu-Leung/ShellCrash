@@ -124,10 +124,6 @@ gen_providers_txt() {
     ua=$(_ps_esc "${5:-clash.meta}")
     exclude=$(_ps_esc "${6#\#}")
     include=$(_ps_esc "${7#\#}")
-    exclude_ele=''
-    include_ele=''
-    [ -n "$exclude" ] && exclude_ele="\"exclude\": \"$exclude\","
-    [ -n "$include" ] && include_ele="\"include\": \"$include\","
     if [ -n "$(echo "$2" | grep -E '^./')" ]; then
         cat >>"$TMPDIR"/providers/providers.json <<EOF
     {
@@ -144,8 +140,6 @@ EOF
       "path": "./providers/$tag_esc.yaml",
       "user_agent": "$ua",
       "update_interval": "${interval2}h",
-      $exclude_ele
-      $include_ele
 EOF
     fi
     # 通用部分生成（TLS fail-closed：仅 skip_cert=ON 时跳过证书校验）
@@ -166,6 +160,10 @@ EOF
       }
     },
 EOF
-    # 写入提供者
-    echo '{ "tag": "'"$tag_esc"'", "type": "urltest", "tolerance": 100, "providers": ["'"$tag_esc"'"], "include": ".*" },' >>"$TMPDIR"/providers/outbounds_add.json
+    # 写入提供者（Sing-BoxR 节点筛选置于 urltest 出站组对象上）
+    _ob_inc='.*'
+    [ -n "$include" ] && _ob_inc="$include"
+    _ob_exc=''
+    [ -n "$exclude" ] && _ob_exc=', "exclude": "'"$exclude"'"'
+    echo '{ "tag": "'"$tag_esc"'", "type": "urltest", "tolerance": 100, "providers": ["'"$tag_esc"'"], "include": "'"$_ob_inc"'"'"$_ob_exc"' },' >>"$TMPDIR"/providers/outbounds_add.json
 }

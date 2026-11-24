@@ -13,10 +13,21 @@ setconfig() {
     mkdir -p "$(dirname "$configpath")"
     [ -f "$configpath" ] || : >"$configpath"
     _sc_val=$(printf '%s' "$2" | tr -d '\r\n')
+    _sc_cnt=$(awk -v k="$1" 'index($0, k "=") == 1 { c++ } END { print c+0 }' "$configpath")
+    # 若该键已唯一存在且值完全一致，直接返回不改写文件（保持同版本覆盖/重启时配置字节不变）
+    if [ "$_sc_cnt" = "1" ] && \
+       awk -v line="${1}=${_sc_val}" '$0 == line { ok=1; exit } END { exit (ok ? 0 : 1) }' "$configpath"; then
+        return 0
+    fi
     _sc_tmp="${configpath}.tmp.$$"
-    awk -v k="$1" 'index($0, k "=") != 1' "$configpath" >"$_sc_tmp" &&
-        printf '%s=%s\n' "$1" "$_sc_val" >>"$_sc_tmp" &&
-        mv -f "$_sc_tmp" "$configpath"
+    if [ "$_sc_cnt" = "1" ]; then
+        awk -v k="$1" -v line="${1}=${_sc_val}" '{ if (index($0, k "=") == 1) print line; else print }' "$configpath" >"$_sc_tmp" &&
+            mv -f "$_sc_tmp" "$configpath"
+    else
+        awk -v k="$1" 'index($0, k "=") != 1' "$configpath" >"$_sc_tmp" &&
+            printf '%s=%s\n' "$1" "$_sc_val" >>"$_sc_tmp" &&
+            mv -f "$_sc_tmp" "$configpath"
+    fi
     _sc_rc=$?
     rm -f "$_sc_tmp"
     return "$_sc_rc"
@@ -79,4 +90,108 @@ ensure_safe_tmpdir() {
     [ ! -L "$_est_dir" ] && [ -d "$_est_dir" ] || return 1
     chmod 700 "$_est_dir" 2>/dev/null || true
     return 0
+}
+
+# 若上次升级在切换/初始化期间因 SIGKILL 或断电中断，下次加载时自动完成回滚自愈
+recover_interrupted_upgrade() {
+    _riu_txn="$CRASHDIR/.upg_txn"
+    [ -f "$_riu_txn/pending" ] || return 0
+    if [ -f "$_riu_txn/newlist" ]; then
+        while IFS= read -r _rel; do
+            [ -n "$_rel" ] || continue
+            [ -e "$_riu_txn/bak/$_rel" ] || rm -f "$CRASHDIR/$_rel" 2>/dev/null
+        done <"$_riu_txn/newlist"
+    fi
+    if [ -d "$_riu_txn/bak" ]; then
+        ( cd "$_riu_txn/bak" && find . -type f | sed 's|^\./||' ) | while IFS= read -r _rel; do
+            [ -n "$_rel" ] || continue
+            mkdir -p "$CRASHDIR/$(dirname "$_rel")"
+            cp -f "$_riu_txn/bak/$_rel" "$CRASHDIR/$_rel" 2>/dev/null
+        done
+    fi
+    _riu_run=$(cat "$_riu_txn/was_running" 2>/dev/null)
+    rm -rf "$_riu_txn"
+    [ "$_riu_run" = "1" ] && "$CRASHDIR"/start.sh start >/dev/null 2>&1 || true
+    return 0
+}
+
+# 统一事务化脚本升级（菜单更新与定时任务 112 共用）：
+# 1) 暂存解包 + Tar-Slip 校验 + 关键脚本语法检查（不满足绝不触碰现用目录）
+# 2) 在 $CRASHDIR/.upg_txn 写入持久化回滚快照与 pending 标记（防 SIGKILL / 断电中断）
+# 3) 执行 start.sh stop 并校验退出码，停服失败立即中止
+# 4) 子 Shell 运行 init.sh + 校验服务恢复；任何失败或 INT/TERM 信号均字节级回滚全部文件与配置并清理临时文件
+apply_script_upgrade() {
+    _asu_tar="$1"
+    [ -s "$_asu_tar" ] || return 1
+    _asu_stage="$TMPDIR/upg_stage.$$"
+    _asu_txn="$CRASHDIR/.upg_txn"
+    _asu_bak="$_asu_txn/bak"
+    _asu_list="$_asu_txn/newlist"
+    rm -rf "$_asu_stage" "$_asu_txn"
+    mkdir -p "$_asu_stage" "$_asu_bak" || return 1
+
+    if ! safe_tar_check "$_asu_tar" || \
+       ! tar -zxf "$_asu_tar" ${tar_para} -C "$_asu_stage" 2>/dev/null || \
+       [ ! -s "$_asu_stage/start.sh" ] || [ ! -s "$_asu_stage/menu.sh" ] || \
+       [ ! -s "$_asu_stage/init.sh" ] || [ ! -s "$_asu_stage/libs/get_config.sh" ] || \
+       ! sh -n "$_asu_stage/start.sh" 2>/dev/null || \
+       ! sh -n "$_asu_stage/menu.sh" 2>/dev/null || \
+       ! sh -n "$_asu_stage/init.sh" 2>/dev/null || \
+       ! sh -n "$_asu_stage/libs/get_config.sh" 2>/dev/null; then
+        rm -rf "$_asu_stage" "$_asu_txn"
+        return 1
+    fi
+
+    _asu_was_running=0
+    [ -n "$(pidof CrashCore 2>/dev/null)" ] && _asu_was_running=1
+    printf '%s\n' "$_asu_was_running" >"$_asu_txn/was_running"
+
+    # 停服失败时严禁覆盖运行中的脚本目录
+    if [ -x "$CRASHDIR/start.sh" ] && ! "$CRASHDIR"/start.sh stop >/dev/null 2>&1; then
+        rm -rf "$_asu_stage" "$_asu_txn"
+        return 1
+    fi
+
+    # 记录新包内所有相对路径，并对既有同名文件与关键配置做字节级备份
+    ( cd "$_asu_stage" && find . -type f | sed 's|^\./||' ) >"$_asu_list"
+    while IFS= read -r _rel; do
+        [ -n "$_rel" ] || continue
+        if [ -e "$CRASHDIR/$_rel" ]; then
+            mkdir -p "$_asu_bak/$(dirname "$_rel")"
+            cp -p "$CRASHDIR/$_rel" "$_asu_bak/$_rel" 2>/dev/null || cp -f "$CRASHDIR/$_rel" "$_asu_bak/$_rel" 2>/dev/null
+        fi
+    done <"$_asu_list"
+    for _cfg in configs/ShellCrash.cfg configs/command.env configs/directories.env; do
+        if [ -f "$CRASHDIR/$_cfg" ]; then
+            mkdir -p "$_asu_bak/configs"
+            cp -p "$CRASHDIR/$_cfg" "$_asu_bak/$_cfg" 2>/dev/null || cp -f "$CRASHDIR/$_cfg" "$_asu_bak/$_cfg" 2>/dev/null
+        fi
+    done
+
+    _asu_rollback() {
+        trap '' TERM INT
+        recover_interrupted_upgrade
+        rm -rf "$_asu_stage" "$_asu_txn" "$_asu_tar"
+    }
+
+    : >"$_asu_txn/pending"
+    trap '_asu_rollback; exit 143' TERM
+    trap '_asu_rollback; exit 130' INT
+
+    mkdir -p "$CRASHDIR" >/dev/null 2>&1
+    _asu_ok=0
+    if cp -af "$_asu_stage"/. "$CRASHDIR"/ 2>/dev/null && \
+       ( CRASHDIR="$CRASHDIR" sh "$CRASHDIR"/init.sh >/dev/null ) && \
+       { [ "$_asu_was_running" = 0 ] || "$CRASHDIR"/start.sh start >/dev/null 2>&1; }; then
+        _asu_ok=1
+    fi
+
+    trap - TERM INT
+    if [ "$_asu_ok" = 1 ]; then
+        rm -rf "$_asu_stage" "$_asu_txn"
+        return 0
+    else
+        _asu_rollback
+        return 1
+    fi
 }

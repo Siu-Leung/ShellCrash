@@ -139,7 +139,7 @@ checkupdate() {
     rm -rf "$TMPDIR"/version_new
 }
 
-# 更新脚本（安全加固：先暂存校验 Tar-Slip 与关键脚本语法，再备份旧脚本切换并在失败时回滚）
+# 更新脚本（统一调用事务化升级函数 apply_script_upgrade，失败自动回滚并返回非零）
 getscripts() {
     line_break
     separator_line "="
@@ -151,41 +151,16 @@ getscripts() {
         error_down
         return 1
     fi
-    _upg_stage="$TMPDIR/upg_stage.$$"
-    _upg_bak="$TMPDIR/upg_bak.$$"
-    rm -rf "$_upg_stage" "$_upg_bak"
-    mkdir -p "$_upg_stage" "$_upg_bak"
     content_line "$UPG_EXTRACTING"
-    if ! safe_tar_check "$TMPDIR/ShellCrash.tar.gz" || \
-       ! tar -zxf "$TMPDIR/ShellCrash.tar.gz" ${tar_para} -C "$_upg_stage" || \
-       [ ! -s "$_upg_stage/start.sh" ] || [ ! -s "$_upg_stage/menu.sh" ] || [ ! -s "$_upg_stage/init.sh" ] || \
-       ! sh -n "$_upg_stage/start.sh" 2>/dev/null || ! sh -n "$_upg_stage/menu.sh" 2>/dev/null || ! sh -n "$_upg_stage/init.sh" 2>/dev/null; then
-        content_line "\033[33m$UPG_EXTRACT_FAIL\033[0m"
-        rm -rf "$_upg_stage" "$_upg_bak" "$TMPDIR"/ShellCrash.tar.gz
-        error_down
-        return 1
-    fi
-    # 备份现有运行脚本（不改动用户 configs/yamls/jsons/providers）
-    for _item in start.sh menu.sh init.sh version libs menus starts lang task; do
-        [ -e "$CRASHDIR/$_item" ] && cp -a "$CRASHDIR/$_item" "$_upg_bak/" 2>/dev/null
-    done
-    _was_running=0
-    [ -n "$(pidof CrashCore 2>/dev/null)" ] && _was_running=1
-    "$CRASHDIR"/start.sh stop 2>/dev/null
-    mkdir -p "$CRASHDIR" >/dev/null
-    if cp -af "$_upg_stage"/. "$CRASHDIR"/ && . "$CRASHDIR"/init.sh >/dev/null; then
+    if apply_script_upgrade "$TMPDIR/ShellCrash.tar.gz"; then
         echo "$release_type" | grep -qE '^[0-9]' && setconfig userguide #回退时重新新手引导
-        [ "$_was_running" = 1 ] && "$CRASHDIR"/start.sh start >/dev/null 2>&1
         content_line "\033[32m$UPG_SCRIPT_OK\033[0m"
         separator_line "="
-        rm -rf "$_upg_stage" "$_upg_bak" "$TMPDIR"/ShellCrash.tar.gz
-        exit 0
+        rm -f "$TMPDIR"/ShellCrash.tar.gz
+        return 0
     else
-        # 切换或初始化失败：自动回滚旧脚本并恢复服务
-        cp -af "$_upg_bak"/. "$CRASHDIR"/ 2>/dev/null
-        [ "$_was_running" = 1 ] && "$CRASHDIR"/start.sh start >/dev/null 2>&1
         content_line "\033[33m$UPG_EXTRACT_FAIL\033[0m"
-        rm -rf "$_upg_stage" "$_upg_bak" "$TMPDIR"/ShellCrash.tar.gz
+        rm -f "$TMPDIR"/ShellCrash.tar.gz
         error_down
         return 1
     fi
@@ -205,12 +180,14 @@ setscripts() {
             break
             ;;
         1)
-            # 下载更新
-            getscripts
-            # 提示
-            msg_alert "\033[32m$UPG_SCRIPT_MGR_OK\033[0m"
-            line_break
-            exit 0
+            # 下载更新（仅升级事务完全成功时提示成功并退出 0，失败直接以非零退出码返回）
+            if getscripts; then
+                msg_alert "\033[32m$UPG_SCRIPT_MGR_OK\033[0m"
+                line_break
+                exit 0
+            else
+                exit 1
+            fi
             ;;
         *)
             errornum
@@ -907,48 +884,59 @@ setgeo() {
     done
 }
 
-# Dashboard
+# Dashboard（安全加固：先暂存下载并校验 Tar-Slip 与解包，成功后再原子替换旧面板并写入配置）
 getdb() {
     dblink="${update_url}/"
     line_break
     separator_line "="
     content_line "$UPG_DB_GETTING"
-    get_bin "$TMPDIR"/clashdb.tar.gz bin/dashboard/${db_type}.tar.gz
+    _db_tar="$TMPDIR/clashdb.tar.gz"
+    _db_stage="$TMPDIR/db_stage.$$"
+    rm -rf "$_db_tar" "$_db_stage"
+    get_bin "$_db_tar" "bin/dashboard/${db_type}.tar.gz"
     if [ "$?" != "0" ]; then
         content_line "\033[31m$UPG_DOWNLOAD_FAIL\033[0m"
+        rm -rf "$_db_tar" "$_db_stage"
         error_down
         return 1
-    else
-        content_line "\033[33m$UPG_DB_DOWNLOAD_OK\033[0m"
-        mkdir -p "$dbdir" >/dev/null
-        tar -zxf "$TMPDIR/clashdb.tar.gz" ${tar_para} -C "$dbdir" >/dev/null
-        if [ $? -ne 0 ]; then
-            content_line "$UPG_EXTRACT_FAIL"
-            separator_line "="
-            line_break
-            sleep 1
-            rm -rf "$TMPDIR"/clashdb.tar.gz
-            return 1
-        fi
-
-        #修改默认host和端口
-        if [ "$db_type" = "clashdb" -o "$db_type" = "meta_db" -o "$db_type" = "zashboard" ]; then
-            sed -i "s/127.0.0.1/${host}/g" "$dbdir"/assets/*.js
-            sed -i "s/9090/${db_port}/g" "$dbdir"/assets/*.js
-        elif [ "$db_type" = "meta_xd" ]; then
-            sed -i "s/127.0.0.1:9090/${host}:${db_port}/g" "$dbdir"/_nuxt/*.js
-        else
-            sed -i "s/127.0.0.1:9090/${host}:${db_port}/g" "$dbdir"/*.html
-        fi
-        #写入配置文件
-        setconfig_quote hostdir "$hostdir"
-        content_line "\033[32m$UPG_DB_OK\033[0m"
-        content_line "\033[36m$UPG_DB_REFRESH_HINT\033[0m"
-        separator_line "="
-        sleep 1
-        rm -rf "$TMPDIR"/clashdb.tar.gz
     fi
+    content_line "\033[33m$UPG_DB_DOWNLOAD_OK\033[0m"
+    mkdir -p "$_db_stage" >/dev/null
+    if ! safe_tar_check "$_db_tar" || ! tar -zxf "$_db_tar" ${tar_para} -C "$_db_stage" >/dev/null 2>&1; then
+        content_line "$UPG_EXTRACT_FAIL"
+        separator_line "="
+        line_break
+        sleep 1
+        rm -rf "$_db_tar" "$_db_stage"
+        return 1
+    fi
+    #修改默认host和端口（在暂存目录中执行，不污染旧面板）
+    if [ "$db_type" = "clashdb" -o "$db_type" = "meta_db" -o "$db_type" = "zashboard" ]; then
+        sed -i "s/127.0.0.1/${host}/g" "$_db_stage"/assets/*.js 2>/dev/null
+        sed -i "s/9090/${db_port}/g" "$_db_stage"/assets/*.js 2>/dev/null
+    elif [ "$db_type" = "meta_xd" ]; then
+        sed -i "s/127.0.0.1:9090/${host}:${db_port}/g" "$_db_stage"/_nuxt/*.js 2>/dev/null
+    else
+        sed -i "s/127.0.0.1:9090/${host}:${db_port}/g" "$_db_stage"/*.html 2>/dev/null
+    fi
+    # 暂存就绪后再替换目标面板目录，并在成功后才写入 external_ui_url 与 hostdir
+    rm -rf "$BINDIR"/ui
+    rm -rf "$dbdir"
+    mkdir -p "$dbdir" >/dev/null
+    if ! cp -af "$_db_stage"/. "$dbdir"/ 2>/dev/null; then
+        content_line "$UPG_EXTRACT_FAIL"
+        rm -rf "$_db_tar" "$_db_stage"
+        return 1
+    fi
+    [ -n "$_pending_ui_url" ] && setconfig external_ui_url "$_pending_ui_url"
+    setconfig_quote hostdir "$hostdir"
+    content_line "\033[32m$UPG_DB_OK\033[0m"
+    content_line "\033[36m$UPG_DB_REFRESH_HINT\033[0m"
+    separator_line "="
     sleep 1
+    rm -rf "$_db_tar" "$_db_stage"
+    sleep 1
+    return 0
 }
 
 dbdir() {
@@ -958,9 +946,8 @@ dbdir() {
             "0) $COMMON_BACK"
         read -r -p "$COMMON_INPUT> " res
         if [ "$res" = 1 ]; then
-            rm -rf "$BINDIR"/ui
-            [ -f /www/clash/CNAME ] && rm -rf /www/clash && dbdir=/www/clash
-            [ -f "$CRASHDIR"/ui/CNAME ] && rm -rf "$CRASHDIR"/ui && dbdir="$CRASHDIR"/ui
+            [ -f /www/clash/CNAME ] && dbdir=/www/clash
+            [ -f "$CRASHDIR"/ui/CNAME ] && dbdir="$CRASHDIR"/ui
             getdb
         else
             msg_alert "\033[33m$UPG_DB_CANCEL\033[0m"
@@ -1023,32 +1010,32 @@ setdb() {
             ;;
         1)
             db_type=zashboard
-            setconfig external_ui_url "https://raw.githubusercontent.com/Siu-Leung/ShellCrash/update/bin/dashboard/${db_type}.tar.gz"
+            _pending_ui_url="https://raw.githubusercontent.com/Siu-Leung/ShellCrash/update/bin/dashboard/${db_type}.tar.gz"
             dbdir
             ;;
         2)
             db_type=meta_xd
-            setconfig external_ui_url "https://raw.githubusercontent.com/Siu-Leung/ShellCrash/update/bin/dashboard/${db_type}.tar.gz"
+            _pending_ui_url="https://raw.githubusercontent.com/Siu-Leung/ShellCrash/update/bin/dashboard/${db_type}.tar.gz"
             dbdir
             ;;
         3)
             db_type=meta_yacd
-            setconfig external_ui_url "https://raw.githubusercontent.com/Siu-Leung/ShellCrash/update/bin/dashboard/${db_type}.tar.gz"
+            _pending_ui_url="https://raw.githubusercontent.com/Siu-Leung/ShellCrash/update/bin/dashboard/${db_type}.tar.gz"
             dbdir
             ;;
         4)
             db_type=clashdb
-            setconfig external_ui_url "https://raw.githubusercontent.com/Siu-Leung/ShellCrash/update/bin/dashboard/${db_type}.tar.gz"
+            _pending_ui_url="https://raw.githubusercontent.com/Siu-Leung/ShellCrash/update/bin/dashboard/${db_type}.tar.gz"
             dbdir
             ;;
         5)
             db_type=meta_db
-            setconfig external_ui_url "https://raw.githubusercontent.com/Siu-Leung/ShellCrash/update/bin/dashboard/${db_type}.tar.gz"
+            _pending_ui_url="https://raw.githubusercontent.com/Siu-Leung/ShellCrash/update/bin/dashboard/${db_type}.tar.gz"
             dbdir
             ;;
         6)
             db_type=yacd
-            setconfig external_ui_url "https://raw.githubusercontent.com/Siu-Leung/ShellCrash/update/bin/dashboard/${db_type}.tar.gz"
+            _pending_ui_url="https://raw.githubusercontent.com/Siu-Leung/ShellCrash/update/bin/dashboard/${db_type}.tar.gz"
             dbdir
             ;;
         9)
@@ -1191,8 +1178,6 @@ setserver() {
             done
 
         btm_box "" \
-            "$UPG_SOURCE_SWITCH_STABLE" \
-            "$UPG_SOURCE_SWITCH_MASTER" \
             "$UPG_SOURCE_SWITCH_DEV" \
             "" \
             "$UPG_SOURCE_CUSTOM" \
@@ -1223,18 +1208,6 @@ setserver() {
             fi
             unset url_id_new
             ;;
-        a)
-            # 安全加固：本 fork 仅维护 dev 加固分支，避免误切回未加固的 stable/master 分支
-            release_type=dev
-            [ -z "$url_id" ] && url_id=101
-            saveserver
-            ;;
-        b)
-            # 安全加固：本 fork 仅维护 dev 加固分支，避免误切回未加固的 stable/master 分支
-            release_type=dev
-            [ -z "$url_id" ] && url_id=101
-            saveserver
-            ;;
         c)
             while true; do
                 comp_box "\033[33m$UPG_SOURCE_DEV_WARN1\033[0m" \
@@ -1264,10 +1237,11 @@ setserver() {
         d)
             comp_box "\033[36m$UPG_SOURCE_CUSTOM_HINT\033[0m" \
                 "$UPG_CUSTOM_CORE_LINK_HINT3"
-            read -r -p "$UPG_SOURCE_CUSTOM_INPUT" update_url
-            if [ "$update_url" = 0 ]; then
+            read -r -p "$UPG_SOURCE_CUSTOM_INPUT" _custom_url
+            if [ -z "$_custom_url" ] || [ "$_custom_url" = 0 ]; then
                 continue
-            elif [ ! -z "$update_url" ]; then
+            else
+                update_url="$_custom_url"
                 url_id=''
                 release_type=''
                 saveserver

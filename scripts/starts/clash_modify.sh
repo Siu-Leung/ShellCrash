@@ -30,6 +30,22 @@ prepare_clash_base_config() {
     #dns配置
     [ -z "$(cat "$CRASHDIR"/yamls/user.yaml 2>/dev/null | grep '^dns:')" ] && {
         [ "$crashcore" != meta ] && dns_resolver='223.5.5.5'
+        # 安全加固：对所有 YAML flow 列表项加单引号，防止 https://[IPv6]:port 中的方括号/冒号破坏 YAML 解析
+        _yaml_flow_list() {
+            printf '%s' "$1" | awk -F',' '{
+                out = ""
+                for (i = 1; i <= NF; i++) {
+                    s = $i
+                    gsub(/^[[:space:]]+|[[:space:]]+$/, "", s)
+                    if (s == "") continue
+                    gsub(/\047/, "\047\047", s)
+                    out = (out == "" ? "\047" s "\047" : out ", \047" s "\047")
+                }
+                print out
+            }'
+        }
+        _q_res=$(_yaml_flow_list "$dns_resolver")
+        _q_ns=$(_yaml_flow_list "$dns_nameserver")
         if [ "$firewall_area" = "4" ] && [ "$public_support" != "ON" ]; then
             _dns_listen="127.0.0.1:$dns_port"
         else
@@ -41,8 +57,8 @@ dns:
   listen: $_dns_listen
   use-hosts: true
   ipv6: $dns_v6
-  default-nameserver: [ $dns_resolver ]
-  direct-nameserver: [ $dns_nameserver ]
+  default-nameserver: [ $_q_res ]
+  direct-nameserver: [ $_q_ns ]
   enhanced-mode: fake-ip
   fake-ip-range: $fakeip4
   fake-ip-range6: $fakeip6
@@ -72,21 +88,23 @@ EOF
                 echo "  respect-rules: true" >>"$TMPDIR"/dns.yaml
             fi
             echo "  nameserver-policy:" >>"$TMPDIR"/dns.yaml
+            _q_ps=$(_yaml_flow_list "$dns_proxy_server")
+            _q_fin=$(_yaml_flow_list "$dns_final")
             # 添加用户自定义直连域名
             if [ -s "$CRASHDIR/configs/dns_direct_domains" ]; then
                 cat "$CRASHDIR/configs/dns_direct_domains" | grep -v '^#' | while read domain; do
-                    [ -n "$domain" ] && echo "    '$domain': [ $dns_nameserver ]" >>"$TMPDIR"/dns.yaml
+                    [ -n "$domain" ] && echo "    '$domain': [ $_q_ns ]" >>"$TMPDIR"/dns.yaml
                 done
             fi
             # 添加CN规则集
-            echo "    'rule-set:cn': [ $dns_nameserver ]" >>"$TMPDIR"/dns.yaml
+            echo "    'rule-set:cn': [ $_q_ns ]" >>"$TMPDIR"/dns.yaml
             cat >>"$TMPDIR"/dns.yaml <<EOF
-  proxy-server-nameserver : [ $dns_proxy_server ]
-  nameserver: [ $dns_final ]
+  proxy-server-nameserver: [ $_q_ps ]
+  nameserver: [ $_q_fin ]
 EOF
             if [ "$crashcore" = "meta" ] && [ "$dns_mod" = "route" ] && [ "$dns_protect" != "OFF" ] && [ "$dns_failover" = "ON" ]; then
                 cat >>"$TMPDIR"/dns.yaml <<EOF
-  fallback: [ $dns_nameserver ]
+  fallback: [ $_q_ns ]
   fallback-filter:
     geoip: false
   fallback-lazy-query: true
@@ -94,7 +112,7 @@ EOF
             fi
         else
             cat >>"$TMPDIR"/dns.yaml <<EOF
-  nameserver: [ $dns_nameserver ]
+  nameserver: [ $_q_ns ]
 EOF
         fi
     }
@@ -166,9 +184,10 @@ split_and_customize_yaml_parts() {
     yaml_char='proxies proxy-groups proxy-providers rules rule-providers sub-rules listeners'
     for char in $yaml_char; do
         sed -n "/^$char:/,/^[a-z]/ { /^[a-z]/d; p; }" $core_config >"$TMPDIR"/${char}.yaml
-        #支持 Clash 常见的单行 flow-style 节点列表，例如 proxies: [{name: ..., type: ...}]
+        #支持 Clash 常见的单行 flow-style 非空节点列表，例如 proxies: [{name: ..., type: ...}]
+        #修正：空列表 proxies: [] 不生成空 "- " 项（避免 Mihomo 报 proxy 0: missing type）
         if [ "$char" = proxies ] && [ ! -s "$TMPDIR"/proxies.yaml ]; then
-            sed -n 's/^proxies:[[:space:]]*\[\(.*\)\][[:space:]]*$/  - \1/p' "$core_config" >"$TMPDIR"/proxies.yaml
+            sed -n 's/^proxies:[[:space:]]*\[[[:space:]]*\([^][:space:]].*\)\][[:space:]]*$/  - \1/p' "$core_config" >"$TMPDIR"/proxies.yaml
         fi
     done
     #跳过本地tls证书验证（安全加固：fail-closed，仅显式 skip_cert=ON 时跳过，并同步覆盖 proxy-providers）
@@ -232,7 +251,7 @@ split_and_customize_yaml_parts() {
 
 add_custom_inbounds_and_rules() {
     #添加自定义入站
-    [ "$vms_service" = ON ] || [ "$sss_service" = ON ] && {
+    { [ "$vms_service" = ON ] || [ "$sss_service" = ON ]; } && [ -f "$CRASHDIR"/configs/gateway.cfg ] && {
         . "$CRASHDIR"/configs/gateway.cfg
         . "$CRASHDIR"/libs/meta_listeners.sh
     }
@@ -320,7 +339,12 @@ test_yaml() {
         #合并基础配置文件
         cut -c 1- "$TMPDIR"/set.yaml "$TMPDIR"/geodata_base.yaml $yaml_dns $yaml_add >"$TMPDIR"/config.yaml
         sed -i "/#自定义/d" "$TMPDIR"/config.yaml
+        if ! "$TMPDIR"/CrashCore -t -d "$BINDIR" -f "$TMPDIR"/config.yaml >/dev/null; then
+            logger "基础配置文件校验仍然失败，已中止启动！" 31
+            return 1
+        fi
     fi
+    return 0
 }
 
 finalize_clash_yaml() {
@@ -339,6 +363,13 @@ modify_yaml() {
     split_and_customize_yaml_parts
     add_custom_inbounds_and_rules
     merger_yaml
-    test_yaml
-    finalize_clash_yaml
+    if test_yaml; then
+        finalize_clash_yaml
+        return 0
+    else
+        for char in $yaml_char set set_bak dns hosts geodata geodata_base; do
+            rm -f "$TMPDIR"/${char}.yaml
+        done
+        return 1
+    fi
 }

@@ -39,7 +39,7 @@ ip_in_cidr() {
     }'
 }
 
-# 安全加固：查看/修改 fake-ip 网段，附本地网段冲突检测
+# 安全加固：查看/修改 fake-ip 网段，严格校验八位组与掩码并前置拦截本地网段冲突
 fake_ip_range() {
     while true; do
         comp_box "\033[32m$DNS_FAKEIP_RANGE\033[0m" \
@@ -49,26 +49,41 @@ fake_ip_range() {
         for _lip in $(ip -4 -o addr 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | sort -u); do
             ip_in_cidr "$_lip" "$fakeip4" && _conflict="$_conflict $_lip"
         done
-        [ -n "$_conflict" ] && content_line "\033[31m警告：本地地址 $_conflict 与 fake-ip 段重叠，可能导致路由异常！\033[0m" \
-            || content_line "\033[32m未发现本地网段冲突\033[0m"
-        content_line "\033[33m修改后需重启服务，防火墙规则会自动采用新段。\033[0m"
-        btm_box "1) 修改 IPv4 fake-ip 段" \
+        [ -n "$_conflict" ] && content_line "\033[31m${DNS_FAKEIP_CONFLICT_WARN}${_conflict}\033[0m" \
+            || content_line "\033[32m$DNS_FAKEIP_NO_CONFLICT\033[0m"
+        content_line "\033[33m$DNS_FAKEIP_RESTART_HINT\033[0m"
+        btm_box "1) $DNS_FAKEIP_EDIT_IPV4" \
             "0) $COMMON_BACK"
         read -r -p "$COMMON_INPUT> " _n
         case "$_n" in
         "" | 0) break ;;
         1)
-            read -r -p "输入新 IPv4 CIDR（如 198.18.0.0/15）> " _new
+            read -r -p "$DNS_FAKEIP_INPUT_CIDR" _new
             case "$_new" in
+            '') continue ;;
             */*) ;;
-            *) msg_alert "\033[31m格式错误：需 CIDR 形式\033[0m"; continue ;;
+            *) msg_alert "\033[31m$DNS_FAKEIP_ERR_FORMAT\033[0m"; continue ;;
             esac
             _ip=${_new%/*}; _bits=${_new#*/}
-            echo "$_ip" | grep -qE '^([0-9]{1,3}\.){3}[0-9]{1,3}$' || { msg_alert "\033[31m非法 IPv4\033[0m"; continue; }
-            [ "$_bits" -ge 8 ] 2>/dev/null && [ "$_bits" -le 30 ] || { msg_alert "\033[31m掩码需在 8-30 之间\033[0m"; continue; }
+            echo "$_ip" | grep -qE '^([0-9]{1,3}\.){3}[0-9]{1,3}$' || { msg_alert "\033[31m$DNS_FAKEIP_ERR_IPV4\033[0m"; continue; }
+            # 严格校验每段八位组在 0-255 范围内
+            if ! awk -F. -v ip="$_ip" 'BEGIN{ n=split(ip,a,"."); if(n!=4) exit 1; for(i=1;i<=4;i++) if(a[i]<0 || a[i]>255) exit 1; exit 0 }'; then
+                msg_alert "\033[31m$DNS_FAKEIP_ERR_IPV4\033[0m"
+                continue
+            fi
+            echo "$_bits" | grep -qE '^[0-9]+$' && [ "$_bits" -ge 8 ] && [ "$_bits" -le 30 ] || { msg_alert "\033[31m$DNS_FAKEIP_ERR_MASK\033[0m"; continue; }
+            # 保存前先检测是否与当前本机接口地址重叠，重叠时拒绝直接写入
+            _new_conflict=''
+            for _lip in $(ip -4 -o addr 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | sort -u); do
+                ip_in_cidr "$_lip" "$_new" && _new_conflict="$_new_conflict $_lip"
+            done
+            if [ -n "$_new_conflict" ]; then
+                msg_alert "\033[31m${DNS_FAKEIP_CONFLICT_BLOCK}${_new_conflict}\033[0m"
+                continue
+            fi
             fakeip4="$_new"
             setconfig_quote fakeip4 "$fakeip4"
-            msg_alert "\033[32mfakeip4 已设为 $fakeip4，请重启服务\033[0m"
+            msg_alert "\033[32m${DNS_FAKEIP_SAVED} $fakeip4\033[0m"
             ;;
         *) errornum ;;
         esac

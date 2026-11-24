@@ -162,7 +162,7 @@ getlanip() { #获取局域网host地址
     #Tailscale
     [ "$ts_service" = ON ] && ts_host_ipv4=' 100.64.0.0/10'
     #Wireguard
-    if [ "$wg_service" = ON ]; then
+    if [ "$wg_service" = ON ] && [ -f "$CRASHDIR"/configs/gateway.cfg ]; then
         . "$CRASHDIR"/configs/gateway.cfg
         wg_host_ipv4=" $wg_ipv4"
     fi

@@ -111,13 +111,14 @@ set_fw_wan() {
                 read -r -p "$COMMON_INPUT> " res
                 if [ "$res" = 1 ]; then
                     fw_wan=OFF
+                    setconfig fw_wan "$fw_wan"
                 else
-                    fw_wan=ON
+                    continue
                 fi
             else
                 fw_wan=ON
+                setconfig fw_wan "$fw_wan"
             fi
-            setconfig fw_wan "$fw_wan"
             ;;
         2)
             port_count=$(echo "$fw_wan_ports" | awk -F',' '{print NF}')

@@ -26,6 +26,10 @@ parse_singbox_dns() { #dns转换工具
     case "$first_dns" in
         *://*)
             type="${first_dns%%://*}"
+            case "$type" in
+                doh) type="https" ;;
+                dot) type="tls" ;;
+            esac
             tmp="${first_dns#*://}"
             # 修正：scheme:// 之后的部分可能含 /path，先切出 path（含前导 /），只用 host[:port] 解析端口
             case "$tmp" in
@@ -164,7 +168,7 @@ EOF
 	fi
     #生成endpoints.json
     [ "$ts_service" = ON ] || [ "$wg_service" = ON ] && [ "$zip_type" != upx ] && {
-        . "$CRASHDIR"/configs/gateway.cfg
+        [ -f "$CRASHDIR"/configs/gateway.cfg ] && . "$CRASHDIR"/configs/gateway.cfg
         . "$CRASHDIR"/libs/sb_endpoints.sh
     }
     #生成log.json
@@ -428,7 +432,7 @@ gen_inbounds() { #生成inbounds.json
 EOF
     #inbounds.json添加自定义入站
     [ "$vms_service" = ON ] || [ "$sss_service" = ON ] && {
-        . "$CRASHDIR"/configs/gateway.cfg
+        [ -f "$CRASHDIR"/configs/gateway.cfg ] && . "$CRASHDIR"/configs/gateway.cfg
         . "$CRASHDIR"/libs/sb_inbounds.sh
     }
     if [ "$redir_mod" = "Mix" ] || [ "$redir_mod" = "Tun" ]; then
@@ -578,7 +582,12 @@ test_json() { #测试自定义配置文件
         #清理自定义配置文件并还原基础配置
         rm -rf "$TMPDIR"/jsons/cust_*
         mv -f "$TMPDIR"/jsons_base/* "$TMPDIR"/jsons 2>/dev/null
+        if ! "$TMPDIR"/CrashCore check -D "$BINDIR" -C "$TMPDIR"/jsons >/dev/null 2>&1; then
+            logger "基础配置文件校验仍然失败，已中止启动！" 31
+            return 1
+        fi
     fi
+    return 0
 }
 
 modify_json() { #入口
@@ -594,8 +603,9 @@ modify_json() { #入口
     normalize_and_finalize_jsons
     link_custom_jsons
     test_json
+    _mj_rc=$?
     #清理缓存
     rm -rf "$TMPDIR"/*.json
     rm -rf "$TMPDIR"/jsons_base
-    return 0
+    return "$_mj_rc"
 }

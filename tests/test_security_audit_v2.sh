@@ -558,10 +558,239 @@ assert_yes "$ROOT/.github/workflows/bin_update.yml" 'bin/SHA256SUMS' 'bin_update
 assert_yes "$ROOT/.github/workflows/bin_update.yml" 'ShellCrash@dev/\$\{devf\}' 'bin_update.yml 同步刷新 @dev 脚本包缓存'
 assert_no "$ROOT/scripts/menus/9_upgrade.sh" '"4\) Clash"' '9_upgrade.sh 已移除停更的 Clash 旧内核选项'
 
+echo '== 13. V4 实机全量审计复核回归（事务升级/备份恢复/空节点/Sing-BoxR筛选/菜单缺陷）=='
+# 13a. setconfig 同值字节幂等性（同版本重装不改写 ShellCrash.cfg 字节与顺序）
+CFG13="$TMP/idemp.cfg"
+printf '#header\nfoo=bar\nalpha=1\n' >"$CFG13"
+_h_before=$(sha256sum "$CFG13" | awk '{print $1}')
+sh -c ". '$ROOT/scripts/libs/set_config.sh'; setconfig foo bar '$CFG13'"
+_h_after=$(sha256sum "$CFG13" | awk '{print $1}')
+[ "$_h_before" = "$_h_after" ] && ok "V4: setconfig 同值写入保持配置文件字节 100% 不变" || bad "V4: setconfig 同值改写了配置文件字节"
+
+# 13b. apply_script_upgrade 故障注入：init.sh exit 34 完整回滚脚本、配置并清理新增文件
+UPG_SB="$TMP/upg_sb"
+mkdir -p "$UPG_SB/configs" "$UPG_SB/libs" "$UPG_SB/tmp"
+printf '#!/bin/sh\necho old_start\n' >"$UPG_SB/start.sh"
+printf '#!/bin/sh\necho old_menu\n' >"$UPG_SB/menu.sh"
+printf '#!/bin/sh\nexit 0\n' >"$UPG_SB/init.sh"
+printf '#!/bin/sh\n:\n' >"$UPG_SB/libs/get_config.sh"
+printf 'versionsh_l=1.9.7-hardened.1\ncustom=keepme\n' >"$UPG_SB/configs/ShellCrash.cfg"
+chmod +x "$UPG_SB/start.sh" "$UPG_SB/menu.sh" "$UPG_SB/init.sh"
+_cfg_hash0=$(sha256sum "$UPG_SB/configs/ShellCrash.cfg" | awk '{print $1}')
+
+# 构造“init.sh 改写配置并 exit 34，且包内含新增文件 extra_new.sh”的测试包
+UPG_PKG="$TMP/upg_pkg_src"
+mkdir -p "$UPG_PKG/libs"
+printf '#!/bin/sh\necho new_start\n' >"$UPG_PKG/start.sh"
+printf '#!/bin/sh\necho new_menu\n' >"$UPG_PKG/menu.sh"
+printf '#!/bin/sh\necho mutated=1 >> "$CRASHDIR/configs/ShellCrash.cfg"\nexit 34\n' >"$UPG_PKG/init.sh"
+printf '#!/bin/sh\n:\n' >"$UPG_PKG/libs/get_config.sh"
+printf 'new_extra\n' >"$UPG_PKG/extra_new.sh"
+tar -czf "$TMP/init_fail.tar.gz" -C "$UPG_PKG" .
+
+if CRASHDIR="$UPG_SB" TMPDIR="$UPG_SB/tmp" sh -c ". '$ROOT/scripts/libs/set_config.sh'; apply_script_upgrade '$TMP/init_fail.tar.gz'"; then
+    bad "V4: init.sh exit 34 时 apply_script_upgrade 不应返回 0"
+else
+    _cfg_hash1=$(sha256sum "$UPG_SB/configs/ShellCrash.cfg" | awk '{print $1}')
+    if [ "$_cfg_hash0" = "$_cfg_hash1" ] && grep -q 'old_start' "$UPG_SB/start.sh" && [ ! -e "$UPG_SB/extra_new.sh" ]; then
+        ok "V4: init.sh exit 34 触发完整回滚（配置字节不变、旧脚本恢复、新增文件已清理）"
+    else
+        bad "V4: init.sh exit 34 回滚不完整"
+    fi
+fi
+
+# 13c. clash_modify.sh 空 proxies: [] 不生成空 '- ' 项，且 IPv6 DoH 在 YAML flow 列表加单引号
+cat >"$TMP/empty_proxies.yaml" <<'EOF'
+proxies: []
+proxy-groups:
+  - name: PROXY
+    type: select
+    proxies: [DIRECT]
+rules:
+  - MATCH,PROXY
+EOF
+sh -c '
+    CRASHDIR="$1"
+    TMPDIR="$1/tmp_ep"
+    BINDIR="$1"
+    mkdir -p "$TMPDIR"
+    core_config="$2"
+    crashcore=meta
+    firewall_area=4; public_support=OFF
+    dns_mod=mix; dns_protect=ON; dns_respect_rules=ON; hosts_opt=OFF
+    dns_nameserver="https://[2001:db8::1]:44443/dns-query, 223.5.5.5"
+    dns_proxy_server="https://[2001:db8::2]:44443/dns-query"
+    dns_fallback="https://[2001:db8::3]:44443/dns-query"
+    mix_port=7890; redir_port=7892; tproxy_port=7893; db_port=9999; dns_port=1053; routing_mark=7894
+    . "$3/scripts/starts/clash_modify.sh"
+    prepare_clash_base_config
+    split_and_customize_yaml_parts
+' _ "$TMP" "$TMP/empty_proxies.yaml" "$ROOT" 2>/dev/null
+if [ ! -s "$TMP/tmp_ep/proxies.yaml" ] && grep -Fq "'https://[2001:db8::1]:44443/dns-query'" "$TMP/tmp_ep/dns.yaml"; then
+    ok "V4: clash_modify.sh 空 proxies: [] 不生成非法空节点且 IPv6 DoH 已加单引号"
+else
+    bad "V4: clash_modify.sh 空 proxies 或 IPv6 DoH 处理失败"
+fi
+
+# 13d. Sing-BoxR include/exclude 置于 urltest 出站而非 providers[]，标准 singbox 明确拒绝，doh:// 归一化为 https
+SB13="$TMP/sb13"
+mkdir -p "$SB13/configs" "$SB13/libs" "$SB13/providers" "$SB13/rules/singbox_providers" "$SB13/tmp"
+cp "$ROOT/scripts/libs/local_sub_convert.sh" "$SB13/libs/"
+cp "$ROOT/rules/singbox_providers/ShellCrash_RS_Nano.json" "$SB13/rules/singbox_providers/"
+for stub in web_get.sh web_get_bin.sh logger.sh; do printf 'logger(){ :; }\n' >"$SB13/libs/$stub"; done
+printf 'ss://YWVzLTI1Ni1nY206cGFzcw@1.2.3.4:8388#KeepNode\nss://YWVzLTI1Ni1nY206cGFzcw@5.6.7.8:8388#DropNode\n' >"$SB13/providers/src.txt"
+printf 'provider_temp_singbox=ShellCrash_RS_Nano.json\n' >"$SB13/configs/ShellCrash.cfg"
+printf 'sub1 ./providers/src.txt 3 12 auto #Drop #Keep\n' >"$SB13/configs/providers.cfg"
+
+# 标准版 singbox 必须明确返回非零
+if CRASHDIR="$SB13" BINDIR="$SB13" TMPDIR="$SB13/tmp" crashcore=singbox LOCAL_SUB_SKIP_CORE_TEST=1 \
+   sh -c ". '$SB13/libs/local_sub_convert.sh'; local_build_singbox_config" >/dev/null 2>&1; then
+    bad "V4: 标准版 singbox 应拒绝 Sing-BoxR provider 模板合成"
+else
+    ok "V4: 标准版 singbox 提前拒绝不兼容的 Sing-BoxR provider 模板"
+fi
+
+# Sing-BoxR 必须将 include/exclude 写在 outbounds(urltest) 而非 providers[]
+if CRASHDIR="$SB13" BINDIR="$SB13" TMPDIR="$SB13/tmp" crashcore=singboxr LOCAL_SUB_SKIP_CORE_TEST=1 \
+   sh -c ". '$SB13/libs/local_sub_convert.sh'; rm -rf \"\$TMPDIR/providers\"; local_build_singbox_config" >/dev/null 2>&1; then
+    ok "V4: Sing-BoxR 带 include/exclude 本地转换执行成功"
+else
+    bad "V4: Sing-BoxR 带 include/exclude 本地转换失败"
+fi
+assert_no "$ROOT/scripts/libs/local_sub_convert.sh" '"exclude":.*\\n.*health_check|"include":.*\\n.*health_check' 'V4: local_sub_convert.sh 不再向 providers[] 写入未知 include/exclude'
+assert_yes "$ROOT/scripts/libs/local_sub_convert.sh" 'for _ext in yaml txt json;' 'V4: local_fallback_cached_provider 支持复用 .json 缓存'
+
+_sb_doh=$(sh -c ". '$ROOT/scripts/starts/singbox_modify.sh' >/dev/null 2>&1 || true; parse_singbox_dns 'doh://[2001:db8::1]:44443/dns-query'")
+case "$_sb_doh" in
+    *'"type": "https"'*'"server": "2001:db8::1"'*'"server_port": 44443'*'"path": "/dns-query"'*)
+        ok "V4: parse_singbox_dns 将 doh:// 归一化为 https 并保留 IPv6/端口/path" ;;
+    *) bad "V4: parse_singbox_dns 输出异常: $_sb_doh" ;;
+esac
+
+# 13e. 备份恢复、面板升级、任务错误码、端口/CIDR 校验与全部菜单缺陷静态核验
+assert_yes "$ROOT/scripts/menus/2_settings.sh" 'safe_tar_check "\$BACK_TAR"' 'V4: 设置恢复前先校验备份归档与 ShellCrash.cfg'
+assert_yes "$ROOT/scripts/menus/2_settings.sh" '_tp_port=' 'V4: 端口冲突检查覆盖 tproxy_port (redir_port+1)'
+assert_yes "$ROOT/scripts/menus/9_upgrade.sh" 'if getscripts; then' 'V4: setscripts 校验 getscripts 返回码，失败不误报成功'
+assert_yes "$ROOT/scripts/menus/9_upgrade.sh" 'safe_tar_check "\$_db_tar"' 'V4: 面板安装先暂存校验再替换旧 ui'
+assert_no "$ROOT/scripts/menus/9_upgrade.sh" 'UPG_SOURCE_SWITCH_STABLE|UPG_SOURCE_SWITCH_MASTER' 'V4: setserver 已移除误导性 stable/master 菜单项'
+assert_yes "$ROOT/scripts/menus/9_upgrade.sh" '_custom_url' 'V4: setserver 自定义源取消不污染会话 update_url'
+assert_yes "$ROOT/scripts/menus/8_tools.sh" '_new_device_name' 'V4: device_name 空回车取消不污染会话显示'
+assert_yes "$ROOT/scripts/menus/ddns.sh" '\[ "\$num" -eq \$\(\(nr \+ 1\)\) \]' 'V4: ddns.sh 拒绝越界序号'
+assert_yes "$ROOT/scripts/menus/dns.sh" 'a\[i\]>255' 'V4: dns.sh 严格校验 IPv4 八位组 0-255'
+assert_yes "$ROOT/scripts/menus/dns.sh" 'DNS_FAKEIP_CONFLICT_BLOCK' 'V4: dns.sh 保存前拦截与本机接口重叠的 fake-ip 段'
+assert_yes "$ROOT/scripts/menus/task_cmd.sh" 'return "\$_mmdb_fail"' 'V4: task 113 update_mmdb 透传下载失败状态'
+assert_yes "$ROOT/scripts/menu.sh" 'MENU_CLI_DOCTOR' 'V4: menu.sh -h doctor 说明已国际化'
+
+for lf in dns.lang menu.lang 2_settings.lang; do
+    _miss=$(awk -F= '/^[A-Za-z0-9_]+=/ {k[$1]=1} FILENAME==ARGV[2] && /^[A-Za-z0-9_]+=/ {delete k[$1]} END {for (x in k) print x}' \
+        "$ROOT/scripts/lang/chs/$lf" "$ROOT/scripts/lang/en/$lf")
+    if [ -z "$_miss" ]; then
+        ok "V4: lang/en/$lf 与 lang/chs/$lf 键 100% 同步"
+    else
+        bad "V4: lang/en/$lf 缺少键: $(echo "$_miss" | tr '\n' ' ')"
+    fi
+done
+
+# 13f. V4.1 深度自审回归：stop 失败中止升级、SIGKILL .upg_txn 自愈、同版本覆盖配置字节不变、b64json 归一化、POSIX sh 缺失 command.env 兼容
+UPG41="$TMP/upg41"
+mkdir -p "$UPG41/inst/configs" "$UPG41/inst/libs" "$UPG41/pkg/libs" "$UPG41/tmp"
+cp "$ROOT/scripts/libs/set_config.sh" "$UPG41/inst/libs/set_config.sh"
+cp "$ROOT/scripts/libs/get_config.sh" "$UPG41/inst/libs/get_config.sh"
+cp "$ROOT/scripts/libs/set_config.sh" "$UPG41/pkg/libs/set_config.sh"
+cp "$ROOT/scripts/libs/get_config.sh" "$UPG41/pkg/libs/get_config.sh"
+cat > "$UPG41/inst/configs/ShellCrash.cfg" <<'EOF'
+#ShellCrash配置文件，不明勿动！
+versionsh_l=1.9.7-hardened.2
+crashcore=meta
+my_alias=crash
+EOF
+printf '1.9.7-hardened.2\n' > "$UPG41/inst/version"
+printf '#!/bin/sh\nexit 0\n' > "$UPG41/inst/menu.sh"
+printf '#!/bin/sh\nexit 0\n' > "$UPG41/inst/init.sh"
+printf '#!/bin/sh\n[ "$1" = "stop" ] && exit 19\nexit 0\n' > "$UPG41/inst/start.sh"
+chmod +x "$UPG41/inst/start.sh" "$UPG41/inst/menu.sh" "$UPG41/inst/init.sh"
+
+printf '1.9.7-hardened.2\n' > "$UPG41/pkg/version"
+printf '#!/bin/sh\n# new\nexit 0\n' > "$UPG41/pkg/menu.sh"
+printf '#!/bin/sh\nexit 0\n' > "$UPG41/pkg/init.sh"
+printf '#!/bin/sh\nexit 0\n' > "$UPG41/pkg/start.sh"
+printf 'extra\n' > "$UPG41/pkg/brand_new.txt"
+tar -czf "$UPG41/pkg.tar.gz" -C "$UPG41/pkg" .
+
+_sha_pre=$(sha256sum "$UPG41/inst/configs/ShellCrash.cfg" | awk '{print $1}')
+if CRASHDIR="$UPG41/inst" TMPDIR="$UPG41/tmp" sh -c ". '$UPG41/inst/libs/set_config.sh'; apply_script_upgrade '$UPG41/pkg.tar.gz'" >/dev/null 2>&1; then
+    bad "V4.1: start.sh stop 返回非零时 apply_script_upgrade 应立即中止"
+else
+    _sha_post=$(sha256sum "$UPG41/inst/configs/ShellCrash.cfg" | awk '{print $1}')
+    if [ "$_sha_pre" = "$_sha_post" ] && [ ! -e "$UPG41/inst/brand_new.txt" ] && ! grep -q '# new' "$UPG41/inst/menu.sh"; then
+        ok "V4.1: start.sh stop 失败时立即中止切换且旧文件与配置 100% 未动"
+    else
+        bad "V4.1: start.sh stop 失败后仍污染了现有目录"
+    fi
+fi
+
+# 同版本正常覆盖：修复 start.sh stop=0，使用真实 init.sh 验证 ShellCrash.cfg 字节完全不变
+cp "$ROOT/scripts/init.sh" "$UPG41/pkg/init.sh"
+cp "$ROOT/scripts/libs/set_profile.sh" "$UPG41/pkg/libs/set_profile.sh"
+mkdir -p "$UPG41/inst/starts" "$UPG41/pkg/starts" "$UPG41/pkg/menus"
+for f in bfstart.sh afstart.sh fw_stop.sh fw_ipv6_watch.sh; do printf '#!/bin/sh\nexit 0\n' > "$UPG41/pkg/starts/$f"; done
+for f in task_cmd.sh bot_tg.sh; do printf '#!/bin/sh\nexit 0\n' > "$UPG41/pkg/menus/$f"; done
+printf '#!/bin/sh\nexit 0\n' > "$UPG41/inst/start.sh"
+chmod +x "$UPG41/inst/start.sh"
+cat > "$UPG41/inst/configs/ShellCrash.cfg" <<'EOF'
+#ShellCrash配置文件，不明勿动！
+versionsh_l=1.9.7-hardened.2
+start_old=ON
+firewall_mod=nftables
+crashcore=meta
+my_alias=crash
+EOF
+_sha_same_pre=$(sha256sum "$UPG41/inst/configs/ShellCrash.cfg" | awk '{print $1}')
+tar -czf "$UPG41/same.tar.gz" -C "$UPG41/pkg" .
+if CRASHDIR="$UPG41/inst" TMPDIR="$UPG41/tmp" sh -c ". '$UPG41/inst/libs/set_config.sh'; apply_script_upgrade '$UPG41/same.tar.gz'" >/dev/null 2>&1; then
+    _sha_same_post=$(sha256sum "$UPG41/inst/configs/ShellCrash.cfg" | awk '{print $1}')
+    if [ "$_sha_same_pre" = "$_sha_same_post" ]; then
+        ok "V4.1: 同版本覆盖升级后 ShellCrash.cfg SHA-256 字节 100% 不变"
+    else
+        bad "V4.1: 同版本覆盖升级改写了 ShellCrash.cfg ($_sha_same_pre != $_sha_same_post)"
+    fi
+else
+    bad "V4.1: 同版本覆盖升级执行失败"
+fi
+
+# 模拟 SIGKILL 中断遗留 .upg_txn/pending，下次加载 get_config.sh 自动自愈
+mkdir -p "$UPG41/inst/.upg_txn/bak/configs"
+cp -f "$UPG41/inst/configs/ShellCrash.cfg" "$UPG41/inst/.upg_txn/bak/configs/ShellCrash.cfg"
+printf 'versionsh_l=corrupted-half-upgrade\n' > "$UPG41/inst/configs/ShellCrash.cfg"
+printf 'orphan_new_file.txt\n' > "$UPG41/inst/.upg_txn/newlist"
+printf 'leftover\n' > "$UPG41/inst/orphan_new_file.txt"
+printf '0\n' > "$UPG41/inst/.upg_txn/was_running"
+: > "$UPG41/inst/.upg_txn/pending"
+# 同时故意删除 command.env 验证 POSIX sh 下 get_config.sh 不因缺失 command.env 退出
+rm -f "$UPG41/inst/configs/command.env"
+if CRASHDIR="$UPG41/inst" sh -c ". '$UPG41/inst/libs/get_config.sh'" >/dev/null 2>&1; then
+    _sha_rec=$(sha256sum "$UPG41/inst/configs/ShellCrash.cfg" | awk '{print $1}')
+    if [ "$_sha_rec" = "$_sha_same_pre" ] && [ ! -e "$UPG41/inst/orphan_new_file.txt" ] && [ ! -d "$UPG41/inst/.upg_txn" ]; then
+        ok "V4.1: SIGKILL 遗留 .upg_txn 在下次加载 get_config.sh 时自动字节级回滚自愈（且缺失 command.env 不中断 POSIX sh）"
+    else
+        bad "V4.1: .upg_txn 自愈后文件或配置未完全恢复"
+    fi
+else
+    bad "V4.1: get_config.sh 在缺失 command.env 或执行 .upg_txn 自愈时异常退出"
+fi
+
+# b64json 订阅归一化核验
+printf '%s' '{"outbounds":[{"type":"socks","tag":"N1","server":"198.51.100.9","server_port":1080}]}' | base64 | tr -d '\n' > "$UPG41/b64json.raw"
+if CRASHDIR="$SB13" TMPDIR="$UPG41/tmp" sh -c ". '$ROOT/scripts/libs/local_sub_convert.sh'; local_normalize_sub_file '$UPG41/b64json.raw' '$UPG41/out_sub' && [ \"\$LOCAL_SUB_FMT\" = 'json' ] && [ -s '$UPG41/out_sub.json' ]" >/dev/null 2>&1; then
+    ok "V4.1: local_normalize_sub_file 正确识别并解码 Base64 封装的 Sing-Box JSON (b64json)"
+else
+    bad "V4.1: local_normalize_sub_file 未能识别 b64json"
+fi
+
 echo ''
 if [ "$FAIL" -eq 0 ]; then
-    printf '\033[32mV2/V3 全面安全与逻辑审计回归测试全部通过\033[0m\n'
+    printf '\033[32mV2/V3/V4/V4.1 全面安全与逻辑审计回归测试全部通过\033[0m\n'
 else
-    printf '\033[31mV2/V3 审计回归测试失败 %d 项\033[0m\n' "$FAIL"
+    printf '\033[31mV2/V3/V4/V4.1 审计回归测试失败 %d 项\033[0m\n' "$FAIL"
     exit 1
 fi

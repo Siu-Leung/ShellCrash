@@ -56,3 +56,20 @@ jobs:
           done
           cmp -s version "$TMP/version" || { echo "Out of sync in ShellCrash.tar.gz: version" >&2; exit 1; }
           echo "ShellCrash.tar.gz is 100% in sync with scripts/ and version."
+
+      - name: Run real-binary core validation matrix (Mihomo + Sing-Box + Sing-BoxR)
+        run: |
+          set -eu
+          CORES=$(mktemp -d)
+          trap 'rm -rf "$CORES"' EXIT
+          mkdir -p "$CORES/meta" "$CORES/singbox" "$CORES/singboxr" "$CORES/geo"
+          BASE="https://raw.githubusercontent.com/${{ github.repository }}/update/bin"
+          curl -fsSL "$BASE/meta/clash-linux-amd64.tar.gz" | tar -zxf - -C "$CORES/meta"
+          curl -fsSL "$BASE/singbox/singbox-linux-amd64.tar.gz" | tar -zxf - -C "$CORES/singbox"
+          curl -fsSL "$BASE/singboxr/singbox-linux-amd64.tar.gz" | tar -zxf - -C "$CORES/singboxr"
+          curl -fsSL "$BASE/geodata/cn_mini.mmdb" -o "$CORES/geo/Country.mmdb"
+          curl -fsSL "$BASE/geodata/mrs_geosite_cn.mrs" -o "$CORES/geo/cn.mrs"
+          curl -fsSL "$BASE/geodata/srs_geosite_cn.srs" -o "$CORES/geo/cn.srs"
+          curl -fsSL "$BASE/geodata/srs_geoip_cn.srs" -o "$CORES/geo/cnip.srs"
+          chmod +x "$CORES/meta/CrashCore" "$CORES/singbox/CrashCore" "$CORES/singboxr/CrashCore"
+          sh tests/real_core_matrix.sh "$CORES"

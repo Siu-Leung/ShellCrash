@@ -19,7 +19,7 @@
 #容器内环境
 grep -qE '/(docker|lxc|kubepods|crio|containerd)/' /proc/1/cgroup 2>/dev/null || [ -f /run/.containerenv ] || [ -f /.dockerenv ] && systype='container'
 #检查环境变量
-[ "$systype" = 'container' ] && CRASHDIR='/etc/ShellCrash'
+[ "$systype" = 'container' ] && [ -z "$CRASHDIR" ] && [ -z "$clashdir" ] && CRASHDIR='/etc/ShellCrash'
 [ -z "$CRASHDIR" ] && [ -n "$clashdir" ] && CRASHDIR="$clashdir"
 [ -z "$CRASHDIR" ] && [ -d /tmp/SC_tmp ] && . /tmp/SC_tmp/menus/set_crashdir.sh && set_crashdir
 CRASHDIR=$(echo "$CRASHDIR" | sed 's#/*$##') #删除末尾的/
@@ -37,6 +37,13 @@ CFG_PATH="$CRASHDIR"/configs/ShellCrash.cfg
 #初始化
 mkdir -p "$CRASHDIR"/configs
 [ -f "$CFG_PATH" ] || echo '#ShellCrash配置文件，不明勿动！' >"$CFG_PATH"
+_init_had_cfg=0
+_init_env_alias="$my_alias"
+[ -s "$CFG_PATH" ] && grep -q '=' "$CFG_PATH" 2>/dev/null && _init_had_cfg=1
+# 保留已有配置中的 my_alias 等字段，避免非交互升级时被空值或重新写盘覆盖
+if [ "$_init_had_cfg" = 1 ]; then
+    [ -z "$my_alias" ] && my_alias=$(awk -F= '$1=="my_alias"{v=$2} END{gsub(/^[\047"]|[\047"]$/,"",v); print v}' "$CFG_PATH" 2>/dev/null)
+fi
 #判断系统类型写入不同的启动文件
 [ -w /usr/lib/systemd/system ] && sysdir=/usr/lib/systemd/system
 [ -w /etc/systemd/system ] && sysdir=/etc/systemd/system
@@ -66,8 +73,8 @@ elif rc-status -r >/dev/null 2>&1; then
     chmod 755 /etc/init.d/shellcrash
     rm -rf "$CRASHDIR"/starts/shellcrash.procd
 else
-    #设为保守模式启动
-    setconfig start_old 已开启
+    #设为保守模式启动（不覆盖已有用户配置）
+    grep -q '^start_old=' "$CFG_PATH" 2>/dev/null || setconfig start_old 已开启
     rm -rf "$CRASHDIR"/starts/shellcrash.procd
 fi
 rm -rf "$CRASHDIR"/starts/shellcrash.service
@@ -82,7 +89,7 @@ for file in start.sh starts/bfstart.sh starts/afstart.sh starts/fw_stop.sh start
     sed -i "1s|^#!/bin/sh\$|#!/bin/$shtype|" "$CRASHDIR/$file" 2>/dev/null
     chmod +x "$CRASHDIR/$file" 2>/dev/null
 done
-[ -z "$version" ] && [ -s "$CRASHDIR"/version ] && version=$(cat "$CRASHDIR"/version)
+[ -s "$CRASHDIR"/version ] && version=$(head -n 1 "$CRASHDIR"/version | tr -d '\r\n ')
 [ -n "$version" ] && setconfig versionsh_l "$version"
 #生成用于执行启动服务的变量文件
 DIRECTORIES_FILE="$CRASHDIR"/configs/directories.env
@@ -125,7 +132,9 @@ if [ -n "$profile" ]; then
     set_profile "$profile"
     #适配zsh环境变量
     zsh --version >/dev/null 2>&1 && [ -z "$(cat $HOME/.zshrc 2>/dev/null | grep CRASHDIR)" ] && set_profile "$HOME/.zshrc"
-    setconfig my_alias "$my_alias"
+    if [ "$_init_had_cfg" = 0 ] || [ -n "$_init_env_alias" ] || ! grep -q '^my_alias=' "$CFG_PATH" 2>/dev/null; then
+        [ -n "$my_alias" ] && setconfig my_alias "$my_alias"
+    fi
 else
     echo -e "\033[33m无法写入环境变量！请检查安装权限！\033[0m"
     exit 1
@@ -171,25 +180,27 @@ fi
 #华硕下载大师启动额外设置
 [ -f "$dir/asusware.arm/etc/init.d/S50downloadmaster" ] && [ -z "$(grep 'ShellCrash' $dir/asusware.arm/etc/init.d/S50downloadmaster)" ] &&
     sed -i "/^PATH=/a\\$CRASHDIR/start.sh init & #ShellCrash初始化脚本" "$dir/asusware.arm/etc/init.d/S50downloadmaster"
-#容器环境额外设置
-[ "$systype" = 'container' ] && {
-    setconfig userguide '1'
-    setconfig crashcore 'meta'
-    setconfig dns_mod 'mix'
-    setconfig firewall_area '1'
-    setconfig firewall_mod 'nftables'
-    setconfig release_type 'dev'
-    setconfig start_old 'OFF'
-    echo "$CRASHDIR/menu.sh" >> /etc/profile
-    cat > /usr/bin/crash <<'EOF'
+#容器环境额外设置（仅默认 /etc/ShellCrash 容器实例补充缺失项，避免沙箱测试或升级覆盖用户配置）
+[ "$systype" = 'container' ] && [ "$CRASHDIR" = '/etc/ShellCrash' ] && {
+    grep -q '^userguide=' "$CFG_PATH" 2>/dev/null || setconfig userguide '1'
+    grep -q '^crashcore=' "$CFG_PATH" 2>/dev/null || setconfig crashcore 'meta'
+    grep -q '^dns_mod=' "$CFG_PATH" 2>/dev/null || setconfig dns_mod 'mix'
+    grep -q '^firewall_area=' "$CFG_PATH" 2>/dev/null || setconfig firewall_area '1'
+    grep -q '^firewall_mod=' "$CFG_PATH" 2>/dev/null || setconfig firewall_mod 'nftables'
+    grep -q '^release_type=' "$CFG_PATH" 2>/dev/null || setconfig release_type 'dev'
+    grep -q '^start_old=' "$CFG_PATH" 2>/dev/null || setconfig start_old 'OFF'
+    [ -w /etc/profile ] && { grep -qF "$CRASHDIR/menu.sh" /etc/profile 2>/dev/null || echo "$CRASHDIR/menu.sh" >> /etc/profile; }
+    [ -w /usr/bin ] && {
+        cat > /usr/bin/crash <<'EOF'
 #!/bin/sh
 CRASHDIR=${CRASHDIR:-/etc/ShellCrash}
 export CRASHDIR
 exec "$CRASHDIR/menu.sh" "$@"
 EOF
-    chmod 755 /usr/bin/crash	
+        chmod 755 /usr/bin/crash
+    }
 }
-setconfig systype $systype
+[ -n "$systype" ] && { [ "$_init_had_cfg" = 0 ] || grep -q '^systype=' "$CFG_PATH" 2>/dev/null; } && setconfig systype "$systype"
 #删除临时文件
 rm -rf /tmp/*rash*gz
 rm -rf /tmp/SC_tmp
@@ -233,27 +244,28 @@ done
 mv -f "$CRASHDIR"/menus/task_cmd.sh "$CRASHDIR"/task/task.sh 2>/dev/null
 #旧版文件清理
 userdel shellclash >/dev/null 2>&1
-sed -i '/shellclash/d' /etc/passwd
-sed -i '/shellclash/d' /etc/group
+[ -w /etc/passwd ] && grep -q 'shellclash' /etc/passwd 2>/dev/null && sed -i '/shellclash/d' /etc/passwd
+[ -w /etc/group ] && grep -q 'shellclash' /etc/group 2>/dev/null && sed -i '/shellclash/d' /etc/group
 rm -rf /etc/init.d/clash
 rm -rf "$CRASHDIR"/rules
 [ "$systype" = "mi_snapshot" -a "$CRASHDIR" != '/data/clash' ] && rm -rf /data/clash
 for file in webget.sh misnap_init.sh core.new configs/ShellCrash.cfg.bak; do
     rm -f "$CRASHDIR/$file"
 done
-#旧版变量改名
-sed -i "s/clashcore/crashcore/g" "$CFG_PATH"
-sed -i "s/clash_v/core_v/g" "$CFG_PATH"
-sed -i "s/clash.meta/meta/g" "$CFG_PATH"
-sed -i "s/ShellClash/ShellCrash/g" "$CFG_PATH"
-sed -i "s/cpucore=armv8/cpucore=arm64/g" "$CFG_PATH"
-sed -i "s/redir_mod=Redir模式/redir_mod=Redir/g" "$CFG_PATH"
-sed -i "s/redir_mod=Tproxy模式/redir_mod=Tproxy/g" "$CFG_PATH"
-sed -i "s/redir_mod=Tun模式/redir_mod=Tun/g" "$CFG_PATH"
-sed -i "s/redir_mod=混合模式/redir_mod=Mix/g" "$CFG_PATH"
-sed -i "s/redir_mod=纯净模式/firewall_area=4/g" "$CFG_PATH"
-#变量统一使用ON/OFF
-sed -i 's/=\(已启用\|已开启\)$/=ON/'  "$CFG_PATH"
-sed -i 's/=\(未启用\|未开启\)$/=OFF/' "$CFG_PATH"
+#旧版变量改名（仅在检测到历史键名/中文开关值时才改写文件，保持常规重装时配置字节不变）
+if grep -qE '(^(clashcore|clash_v)=|=clash\.meta$|ShellClash|^cpucore=armv8$|^redir_mod=(Redir|Tproxy|Tun|混合|纯净)模式$|=(已启用|已开启|未启用|未开启)$)' "$CFG_PATH" 2>/dev/null; then
+    sed -i "s/^clashcore=/crashcore=/" "$CFG_PATH"
+    sed -i "s/^clash_v=/core_v=/" "$CFG_PATH"
+    sed -i "s/=clash\.meta$/=meta/" "$CFG_PATH"
+    sed -i "s/ShellClash/ShellCrash/g" "$CFG_PATH"
+    sed -i "s/^cpucore=armv8$/cpucore=arm64/" "$CFG_PATH"
+    sed -i "s/^redir_mod=Redir模式$/redir_mod=Redir/" "$CFG_PATH"
+    sed -i "s/^redir_mod=Tproxy模式$/redir_mod=Tproxy/" "$CFG_PATH"
+    sed -i "s/^redir_mod=Tun模式$/redir_mod=Tun/" "$CFG_PATH"
+    sed -i "s/^redir_mod=混合模式$/redir_mod=Mix/" "$CFG_PATH"
+    sed -i "s/^redir_mod=纯净模式$/firewall_area=4/" "$CFG_PATH"
+    sed -i 's/=\(已启用\|已开启\)$/=ON/'  "$CFG_PATH"
+    sed -i 's/=\(未启用\|未开启\)$/=OFF/' "$CFG_PATH"
+fi
 
 printf '\033[32m脚本初始化完成,请输入\033[30;47m %s \033[0;33m命令开始使用！\033[0m\n' "$my_alias"

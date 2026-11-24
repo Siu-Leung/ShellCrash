@@ -1,10 +1,11 @@
 
-# 检查配置文件
+# 检查未完成的升级事务并自动回滚自愈，再加载配置文件
+[ -f "$CRASHDIR/.upg_txn/pending" ] && . "$CRASHDIR"/libs/set_config.sh && recover_interrupted_upgrade
 [ -z "$TASKCFGDIR" ] && TASKCFGDIR="$CRASHDIR"/configs/task
 [ -f "$CRASHDIR"/configs/ShellCrash.cfg ] || . "$CRASHDIR"/init.sh >/dev/null 2>&1
 [ -f "$CRASHDIR"/configs/directories.env ] && . "$CRASHDIR"/configs/directories.env >/dev/null 2>&1
-. "$CRASHDIR"/configs/command.env >/dev/null 2>&1
-. "$CRASHDIR"/configs/ShellCrash.cfg
+[ -f "$CRASHDIR"/configs/command.env ] && . "$CRASHDIR"/configs/command.env >/dev/null 2>&1
+[ -f "$CRASHDIR"/configs/ShellCrash.cfg ] && . "$CRASHDIR"/configs/ShellCrash.cfg
 
 [ -z "$mix_port" ] && mix_port=7890
 [ -z "$redir_port" ] && redir_port=7892

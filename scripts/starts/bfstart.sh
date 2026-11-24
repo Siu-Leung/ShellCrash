@@ -126,17 +126,17 @@ catpac                                       #生成pac文件
     done
 }
 if echo "$crashcore" | grep -q 'singbox'; then
-    . "$CRASHDIR"/starts/singbox_check.sh && singbox_check
+    . "$CRASHDIR"/starts/singbox_check.sh && singbox_check || exit 1
     [ -d "$TMPDIR"/jsons ] && rm -rf "$TMPDIR"/jsons/* || mkdir -p "$TMPDIR"/jsons #准备目录
     if [ "$disoverride" != "1" ]; then
-        . "$CRASHDIR"/starts/singbox_modify.sh && modify_json
+        . "$CRASHDIR"/starts/singbox_modify.sh && modify_json || exit 1
     else
         ln -sf "$core_config" "$TMPDIR"/jsons/config.json
     fi
 else
-    . "$CRASHDIR"/starts/clash_check.sh && clash_check
+    . "$CRASHDIR"/starts/clash_check.sh && clash_check || exit 1
     if [ "$disoverride" != "1" ]; then
-        . "$CRASHDIR"/starts/clash_modify.sh && modify_yaml
+        . "$CRASHDIR"/starts/clash_modify.sh && modify_yaml || exit 1
     else
         ln -sf "$core_config" "$TMPDIR"/config.yaml
     fi

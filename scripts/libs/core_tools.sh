@@ -45,15 +45,25 @@ core_find(){
         [ -n "$core_dir" ] && core_unzip "$core_dir" CrashCore
     fi
 }
-core_rollback(){ #内核更新启动失败时恢复上一套可用内核与元信息
+core_rollback(){ #内核更新启动失败时恢复上一套可用内核与配置元信息（字节级还原）
     [ -d "$TMPDIR/core_bak" ] || return 1
     rm -f "$BINDIR"/CrashCore.tar.gz "$BINDIR"/CrashCore.gz "$BINDIR"/CrashCore.upx "$BINDIR"/CrashCore.raw "$TMPDIR"/CrashCore
     for _bf in "$TMPDIR"/core_bak/CrashCore.*; do
         [ -f "$_bf" ] && mv -f "$_bf" "$BINDIR/"
     done
-    [ -n "$CORE_PREV_V" ] && { core_v="$CORE_PREV_V"; setconfig core_v "$core_v"; }
-    [ -n "$CORE_PREV_CMD" ] && { COMMAND="$CORE_PREV_CMD"; setconfig COMMAND "$COMMAND" "$CRASHDIR"/configs/command.env; }
-    [ -n "$CORE_PREV_TYPE" ] && { crashcore="$CORE_PREV_TYPE"; setconfig crashcore "$crashcore"; }
+    if [ -f "$TMPDIR/core_bak/ShellCrash.cfg" ]; then
+        cp -f "$TMPDIR/core_bak/ShellCrash.cfg" "$CRASHDIR"/configs/ShellCrash.cfg
+        . "$CRASHDIR"/configs/ShellCrash.cfg >/dev/null 2>&1
+    else
+        [ -n "$CORE_PREV_V" ] && { core_v="$CORE_PREV_V"; setconfig core_v "$core_v"; }
+        [ -n "$CORE_PREV_TYPE" ] && { crashcore="$CORE_PREV_TYPE"; setconfig crashcore "$crashcore"; }
+    fi
+    if [ -f "$TMPDIR/core_bak/command.env" ]; then
+        cp -f "$TMPDIR/core_bak/command.env" "$CRASHDIR"/configs/command.env
+        . "$CRASHDIR"/configs/command.env >/dev/null 2>&1
+    else
+        [ -n "$CORE_PREV_CMD" ] && { COMMAND="$CORE_PREV_CMD"; setconfig COMMAND "$COMMAND" "$CRASHDIR"/configs/command.env; }
+    fi
     rm -rf "$TMPDIR/core_bak"
     return 0
 }
@@ -84,12 +94,14 @@ core_check(){
             return 2
         }
     fi
-    # 备份旧内核归档至 $TMPDIR/core_bak，便于后续启动失败时自动回滚
+    # 备份旧内核归档与配置文件至 $TMPDIR/core_bak，便于后续启动失败时字节级回滚
     rm -rf "$TMPDIR/core_bak"
     mkdir -p "$TMPDIR/core_bak"
     for _oldf in "$BINDIR"/CrashCore.tar.gz "$BINDIR"/CrashCore.gz "$BINDIR"/CrashCore.upx "$BINDIR"/CrashCore.raw; do
         [ -f "$_oldf" ] && cp -f "$_oldf" "$TMPDIR/core_bak/" 2>/dev/null
     done
+    [ -f "$CRASHDIR"/configs/ShellCrash.cfg ] && cp -f "$CRASHDIR"/configs/ShellCrash.cfg "$TMPDIR/core_bak/ShellCrash.cfg" 2>/dev/null
+    [ -f "$CRASHDIR"/configs/command.env ] && cp -f "$CRASHDIR"/configs/command.env "$TMPDIR/core_bak/command.env" 2>/dev/null
     [ -n "$(pidof CrashCore)" ] && "$CRASHDIR"/start.sh stop #停止旧内核准备切换
     rm -f "$BINDIR"/CrashCore.tar.gz "$BINDIR"/CrashCore.gz "$BINDIR"/CrashCore.upx "$BINDIR"/CrashCore.raw
     _swap_ok=0

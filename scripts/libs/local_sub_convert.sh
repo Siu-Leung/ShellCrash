@@ -170,6 +170,12 @@ local_normalize_sub_file() {
             mv -f "${_raw}.dec.norm" "$LOCAL_SUB_OUT"
             rm -f "${_raw}.norm" "${_raw}.dec"
             return 0
+        elif grep -Eq '"outbounds"[[:space:]]*:' "${_raw}.dec.norm"; then
+            LOCAL_SUB_FMT="json"
+            LOCAL_SUB_OUT="${_prefix}.json"
+            mv -f "${_raw}.dec.norm" "$LOCAL_SUB_OUT"
+            rm -f "${_raw}.norm" "${_raw}.dec"
+            return 0
         fi
         rm -f "${_raw}.dec" "${_raw}.dec.norm"
     fi
@@ -243,7 +249,7 @@ local_commit_staged_providers() {
 local_fallback_cached_provider() {
     _fb_tag=$1
     LOCAL_SUB_REL_PATH=""
-    for _ext in yaml txt; do
+    for _ext in yaml txt json; do
         if [ -s "$CRASHDIR/providers/${_fb_tag}.${_ext}" ]; then
             cp -f "$CRASHDIR/providers/${_fb_tag}.${_ext}" "$LOCAL_SUB_STAGE_DIR/${_fb_tag}.${_ext}"
             LOCAL_SUB_REL_PATH="./providers/${_fb_tag}.${_ext}"
@@ -410,6 +416,11 @@ EOF
 
 # 生成纯本地 Sing-BoxR 配置文件（所有 provider 均为 type: local）
 local_build_singbox_config() {
+    # 普通官方 sing-box 不支持 Sing-BoxR 的 providers / use_all_providers 扩展，提前给出明确提示
+    if [ "$crashcore" = "singbox" ]; then
+        logger "标准版 Sing-Box 不支持本地 provider 规则模板合成，请切换为 Sing-BoxR 或 Mihomo，或直接导入原生 Sing-Box JSON！" 31
+        return 1
+    fi
     if [ -z "$(grep 'provider_temp_singbox' "$CRASHDIR"/configs/ShellCrash.cfg 2>/dev/null)" ]; then
         _tpl_file=$(sed -n '1p' "$CRASHDIR"/configs/singbox_providers.list 2>/dev/null | awk '{print $2}')
     else
@@ -457,17 +468,13 @@ EOF
         esac
         _ptag_esc=$(local_escape_dq "$_ptag")
         _ppath_esc=$(local_escape_dq "$_ppath")
-        _exc_line=""
-        _inc_line=""
-        [ -n "$_pexc" ] && _exc_line="      \"exclude\": \"$(local_escape_dq "$_pexc")\","
-        [ -n "$_pinc" ] && _inc_line="      \"include\": \"$(local_escape_dq "$_pinc")\","
+        # 修正：Sing-BoxR type:local provider 不支持 providers[].include/exclude 字段，
+        # 节点正则筛选应放在 urltest 出站组对象上（与内置 Sing-BoxR 模板一致）。
         cat >>"$TMPDIR/providers/providers.json" <<EOF
     {
       "tag": "$_ptag_esc",
       "type": "local",
       "path": "$_ppath_esc",
-${_exc_line}
-${_inc_line}
       "health_check": {
         "enabled": true,
         "url": "https://www.gstatic.com/generate_204",
@@ -483,7 +490,11 @@ ${_inc_line}
       }
     },
 EOF
-        echo '{ "tag": "'"$_ptag_esc"'", "type": "urltest", "tolerance": 100, "providers": ["'"$_ptag_esc"'"], "include": ".*" },' >>"$TMPDIR/providers/outbounds_add.json"
+        _ob_inc='.*'
+        [ -n "$_pinc" ] && _ob_inc=$(local_escape_dq "$_pinc")
+        _ob_exc=''
+        [ -n "$_pexc" ] && _ob_exc=', "exclude": "'"$(local_escape_dq "$_pexc")"'"'
+        echo '{ "tag": "'"$_ptag_esc"'", "type": "urltest", "tolerance": 100, "providers": ["'"$_ptag_esc"'"], "include": "'"$_ob_inc"'"'"$_ob_exc"' },' >>"$TMPDIR/providers/outbounds_add.json"
         _tags=$(printf '%s, "%s"' "$_tags" "$_ptag_esc" | sed 's/^, //')
         _ok_count=$((_ok_count + 1))
     }
@@ -553,9 +564,19 @@ EOF
 
     if [ "${LOCAL_SUB_SKIP_CORE_TEST:-0}" != "1" ]; then
         . "$CRASHDIR"/starts/check_core.sh && check_core
-        if ! "$TMPDIR"/CrashCore merge "$TMPDIR/config.json" -C "$TMPDIR/providers"; then
-            logger "本地转换生成的 Sing-Box 配置文件合并失败！已保留原有配置与订阅缓存。" 31
-            rm -rf "$TMPDIR/providers" "$TMPDIR/local_sub"
+        _verify_dir="$TMPDIR/local_sub/verify_dir"
+        rm -rf "$_verify_dir"
+        mkdir -p "$_verify_dir"
+        for _bf in "$BINDIR"/*; do
+            [ -e "$_bf" ] || continue
+            [ "${_bf##*/}" = "providers" ] && continue
+            ln -sf "$_bf" "$_verify_dir/${_bf##*/}" 2>/dev/null || true
+        done
+        ln -sf "$LOCAL_SUB_STAGE_DIR" "$_verify_dir/providers"
+        if ! "$TMPDIR"/CrashCore merge "$TMPDIR/config.json" -C "$TMPDIR/providers" || \
+           ! "$TMPDIR"/CrashCore check -D "$_verify_dir" -c "$TMPDIR/config.json"; then
+            logger "本地转换生成的 Sing-Box 配置文件合并或校验失败！已保留原有配置与订阅缓存。" 31
+            rm -rf "$TMPDIR/config.json" "$TMPDIR/providers" "$TMPDIR/local_sub"
             LOCAL_SUB_STAGE_DIR=""
             return 1
         fi

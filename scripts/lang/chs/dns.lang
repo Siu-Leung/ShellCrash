@@ -92,3 +92,15 @@ DNS_DIRECT_TEST_NOT_IN_LIST="✗ 该域名未在直连列表中"
 #=====DNS故障回退=====
 DNS_ADV_FAILOVER="PROXY-DNS故障回退"
 DNS_ADV_FAILOVER_TIP="代理DNS查询失败或无可用IP时，回退到DIRECT-DNS解析（仅Mihomo Route模式且开启DNS防泄漏时生效）"
+
+#=====Fake-IP 网段设置=====
+DNS_FAKEIP_CONFLICT_WARN="警告：本地地址与 fake-ip 网段重叠，可能导致路由异常："
+DNS_FAKEIP_CONFLICT_BLOCK="已拒绝保存：新 fake-ip 网段与本地接口地址重叠："
+DNS_FAKEIP_NO_CONFLICT="未发现本地网段冲突"
+DNS_FAKEIP_RESTART_HINT="修改后需重启服务，防火墙规则会自动采用新段。"
+DNS_FAKEIP_EDIT_IPV4="修改 IPv4 fake-ip 段"
+DNS_FAKEIP_INPUT_CIDR="输入新 IPv4 CIDR（如 198.18.0.0/15）> "
+DNS_FAKEIP_ERR_FORMAT="格式错误：需 CIDR 形式（如 198.18.0.0/15）"
+DNS_FAKEIP_ERR_IPV4="非法 IPv4 地址（每段须在 0-255 之间）"
+DNS_FAKEIP_ERR_MASK="掩码需在 8-30 之间"
+DNS_FAKEIP_SAVED="fakeip4 已保存（重启服务后生效）："

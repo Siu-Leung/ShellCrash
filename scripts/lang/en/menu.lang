@@ -78,6 +78,7 @@ MENU_CLI_HELP="Help List"
 MENU_CLI_UNINSTALL="Uninstall Script"
 MENU_CLI_INIT="Initialize Script"
 MENU_CLI_DEBUG="Debug Mode"
+MENU_CLI_DOCTOR="Run environment & security health check"
 
 MENU_CLI_START="Start Service"
 MENU_CLI_STOP="Stop Service"

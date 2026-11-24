@@ -77,5 +77,5 @@ logger() {
             content="payload={\"text\":\"${_log_esc}\", \"user_ids\":[${push_ChatUSERID}]}"
             web_json_post "$url" "$content" &
         }
-    } &
+    } >/dev/null 2>&1 </dev/null &
 }

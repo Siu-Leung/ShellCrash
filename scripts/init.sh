@@ -63,9 +63,9 @@ elif [ -n "$sysdir" ] && { [ "$(id -u 2>/dev/null)" = "0" ] || [ "$USER" = "root
         echo "shellcrash:x:0:7890::/home/shellcrash:/bin/sh" >>/etc/passwd
     fi
     #配置systemd
-    mv -f "$CRASHDIR"/starts/shellcrash.service "$sysdir"/shellcrash.service 2>/dev/null
-    sed -i "s%/etc/ShellCrash%$CRASHDIR%g" "$sysdir"/shellcrash.service
-    systemctl daemon-reload
+    _installed_systemd_unit="$sysdir/shellcrash.service"
+    mv -f "$CRASHDIR"/starts/shellcrash.service "$_installed_systemd_unit" 2>/dev/null
+    sed -i "s%/etc/ShellCrash%$CRASHDIR%g" "$_installed_systemd_unit"
     rm -rf "$CRASHDIR"/starts/shellcrash.procd
 elif rc-status -r >/dev/null 2>&1; then
     #设为openrc方式启动
@@ -74,7 +74,7 @@ elif rc-status -r >/dev/null 2>&1; then
     rm -rf "$CRASHDIR"/starts/shellcrash.procd
 else
     #设为保守模式启动（不覆盖已有用户配置）
-    grep -q '^start_old=' "$CFG_PATH" 2>/dev/null || setconfig start_old 已开启
+    grep -q '^start_old=' "$CFG_PATH" 2>/dev/null || setconfig start_old ON
     rm -rf "$CRASHDIR"/starts/shellcrash.procd
 fi
 rm -rf "$CRASHDIR"/starts/shellcrash.service
@@ -107,12 +107,18 @@ else
     . "$DIRECTORIES_FILE"
 fi
 [ -f "$COMMAND_FILE" ] || : > "$COMMAND_FILE"
-if [ -n "$(grep 'crashcore=singbox' "$CFG_PATH")" ]; then
+if grep -qE '(crashcore|clashcore)=singbox' "$CFG_PATH" 2>/dev/null; then
     COMMAND='"$TMPDIR/CrashCore run -D $BINDIR -C $TMPDIR/jsons"'
+    _systemd_exec="$TMPDIR/CrashCore run -D $BINDIR -C $TMPDIR/jsons"
 else
     COMMAND='"$TMPDIR/CrashCore -d $BINDIR -f $TMPDIR/config.yaml"'
+    _systemd_exec="$TMPDIR/CrashCore -d $BINDIR -f $TMPDIR/config.yaml"
 fi
 setconfig COMMAND "$COMMAND" "$COMMAND_FILE"
+if [ -n "$_installed_systemd_unit" ] && [ -f "$_installed_systemd_unit" ]; then
+    sed -i "s#^ExecStart=.*#ExecStart=$_systemd_exec#" "$_installed_systemd_unit"
+    systemctl daemon-reload >/dev/null 2>&1 || true
+fi
 #设置防火墙执行模式
 grep -q 'firewall_mod' "$CFG_PATH" 2>/dev/null || {
     firewall_mod=iptables
@@ -269,3 +275,8 @@ if grep -qE '(^(clashcore|clash_v)=|=clash\.meta$|ShellClash|^cpucore=armv8$|^re
 fi
 
 printf '\033[32m脚本初始化完成,请输入\033[30;47m %s \033[0;33m命令开始使用！\033[0m\n' "$my_alias"
+
+# 兼容旧版(如 1.9.6alpha1)菜单更新直接 source init.sh 且未重启服务的行为：若升级前核心在运行($PID 非空)则自动拉起并校验
+if [ -z "$_SC_UPG_ACTIVE" ] && [ -n "$__IS_MODULE_9_UPGRADE_LOADED" ] && [ -n "$PID" ]; then
+    "$CRASHDIR"/start.sh start || exit 1
+fi

@@ -64,6 +64,10 @@ core_rollback(){ #内核更新启动失败时恢复上一套可用内核与配�
     else
         [ -n "$CORE_PREV_CMD" ] && { COMMAND="$CORE_PREV_CMD"; setconfig COMMAND "$COMMAND" "$CRASHDIR"/configs/command.env; }
     fi
+    if { [ "$(id -u 2>/dev/null)" = "0" ] || [ "$USER" = "root" ]; } && grep -q 'systemd' /proc/1/comm 2>/dev/null && [ -n "$COMMAND" ]; then
+        _frag=$(systemctl show -p FragmentPath shellcrash 2>/dev/null | sed 's/FragmentPath=//')
+        [ -f "$_frag" ] && sed -i "s#^ExecStart=.*#ExecStart=$COMMAND#" "$_frag" && systemctl daemon-reload >/dev/null 2>&1 || true
+    fi
     rm -rf "$TMPDIR/core_bak"
     return 0
 }
@@ -122,6 +126,10 @@ core_check(){
     COMMAND="$_new_cmd"
     core_v="$v"
     setconfig COMMAND "$COMMAND" "$CRASHDIR"/configs/command.env && . "$CRASHDIR"/configs/command.env
+    if { [ "$(id -u 2>/dev/null)" = "0" ] || [ "$USER" = "root" ]; } && grep -q 'systemd' /proc/1/comm 2>/dev/null && [ -n "$COMMAND" ]; then
+        _frag=$(systemctl show -p FragmentPath shellcrash 2>/dev/null | sed 's/FragmentPath=//')
+        [ -f "$_frag" ] && sed -i "s#^ExecStart=.*#ExecStart=$COMMAND#" "$_frag" && systemctl daemon-reload >/dev/null 2>&1 || true
+    fi
     setconfig crashcore "$crashcore"
     setconfig core_v "$core_v"
     setconfig_quote custcorelink "$custcorelink"

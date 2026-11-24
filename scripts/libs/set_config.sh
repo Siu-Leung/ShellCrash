@@ -92,34 +92,62 @@ ensure_safe_tmpdir() {
     return 0
 }
 
+# 执行 .upg_txn 快照的字节级文件与服务恢复（供主动回滚与崩溃自愈共用）
+_upg_txn_restore() {
+    _utr_txn="${1:-$CRASHDIR/.upg_txn}"
+    if [ -f "$_utr_txn/newlist" ]; then
+        while IFS= read -r _rel; do
+            [ -n "$_rel" ] || continue
+            [ -e "$_utr_txn/bak/$_rel" ] || rm -f "$CRASHDIR/$_rel" 2>/dev/null
+        done <"$_utr_txn/newlist"
+    fi
+    if [ -d "$_utr_txn/bak" ]; then
+        ( cd "$_utr_txn/bak" && find . -type f | sed 's|^\./||' ) | while IFS= read -r _rel; do
+            [ -n "$_rel" ] || continue
+            mkdir -p "$CRASHDIR/$(dirname "$_rel")"
+            cp -f "$_utr_txn/bak/$_rel" "$CRASHDIR/$_rel" 2>/dev/null
+        done
+    fi
+    _utr_run=$(cat "$_utr_txn/was_running" 2>/dev/null)
+    rm -rf "$_utr_txn"
+    [ "$_utr_run" = "1" ] && "$CRASHDIR"/start.sh start >/dev/null 2>&1 || true
+    return 0
+}
+
 # 若上次升级在切换/初始化期间因 SIGKILL 或断电中断，下次加载时自动完成回滚自愈
+# 注意：当升级主进程仍存活（含 systemd 通过 D-Bus 拉起 bfstart/afstart 的清洁环境）时严禁误触发回滚！
 recover_interrupted_upgrade() {
     _riu_txn="$CRASHDIR/.upg_txn"
     [ -f "$_riu_txn/pending" ] || return 0
-    if [ -f "$_riu_txn/newlist" ]; then
-        while IFS= read -r _rel; do
-            [ -n "$_rel" ] || continue
-            [ -e "$_riu_txn/bak/$_rel" ] || rm -f "$CRASHDIR/$_rel" 2>/dev/null
-        done <"$_riu_txn/newlist"
-    fi
-    if [ -d "$_riu_txn/bak" ]; then
-        ( cd "$_riu_txn/bak" && find . -type f | sed 's|^\./||' ) | while IFS= read -r _rel; do
-            [ -n "$_rel" ] || continue
-            mkdir -p "$CRASHDIR/$(dirname "$_rel")"
-            cp -f "$_riu_txn/bak/$_rel" "$CRASHDIR/$_rel" 2>/dev/null
-        done
-    fi
-    _riu_run=$(cat "$_riu_txn/was_running" 2>/dev/null)
-    rm -rf "$_riu_txn"
-    [ "$_riu_run" = "1" ] && "$CRASHDIR"/start.sh start >/dev/null 2>&1 || true
+    [ -n "$_SC_UPG_ACTIVE" ] && return 0
+    _riu_owner=$(head -n 1 "$_riu_txn/pending" 2>/dev/null | tr -d '\r\n ')
+    case "$_riu_owner" in
+        '' | *[!0-9]*) ;;
+        *)
+            if [ "$_riu_owner" = "$$" ]; then
+                return 0
+            elif [ -d "/proc/$_riu_owner" ]; then
+                _riu_cmd=$(tr '\0' ' ' <"/proc/$_riu_owner/cmdline" 2>/dev/null || true)
+                case "$_riu_cmd" in
+                    *sh* | *menu* | *task* | *ShellCrash* | '') return 0 ;;
+                esac
+            elif [ ! -d /proc ] && kill -0 "$_riu_owner" 2>/dev/null; then
+                return 0
+            fi
+            ;;
+    esac
+    _SC_UPG_ACTIVE="recover.$$"
+    export _SC_UPG_ACTIVE
+    _upg_txn_restore "$_riu_txn"
+    unset _SC_UPG_ACTIVE
     return 0
 }
 
 # 统一事务化脚本升级（菜单更新与定时任务 112 共用）：
 # 1) 暂存解包 + Tar-Slip 校验 + 关键脚本语法检查（不满足绝不触碰现用目录）
-# 2) 在 $CRASHDIR/.upg_txn 写入持久化回滚快照与 pending 标记（防 SIGKILL / 断电中断）
-# 3) 执行 start.sh stop 并校验退出码，停服失败立即中止
-# 4) 子 Shell 运行 init.sh + 校验服务恢复；任何失败或 INT/TERM 信号均字节级回滚全部文件与配置并清理临时文件
+# 2) 执行 start.sh stop 并校验退出码，停服失败立即中止
+# 3) 在 $CRASHDIR/.upg_txn 写入回滚快照与绑定主进程 PID 的 pending 标记（防自身子进程或 systemd 钩子误回滚）
+# 4) 子 Shell 运行 init.sh + 校验新版本落盘与运行态恢复；任何失败或 INT/TERM 均字节级回滚并返回非零
 apply_script_upgrade() {
     _asu_tar="$1"
     [ -s "$_asu_tar" ] || return 1
@@ -170,11 +198,16 @@ apply_script_upgrade() {
 
     _asu_rollback() {
         trap '' TERM INT
-        recover_interrupted_upgrade
+        _SC_UPG_ACTIVE="rollback.$$"
+        export _SC_UPG_ACTIVE
+        _upg_txn_restore "$_asu_txn"
+        unset _SC_UPG_ACTIVE
         rm -rf "$_asu_stage" "$_asu_txn" "$_asu_tar"
     }
 
-    : >"$_asu_txn/pending"
+    printf '%s\n' "$$" >"$_asu_txn/pending"
+    _SC_UPG_ACTIVE="$$"
+    export _SC_UPG_ACTIVE
     trap '_asu_rollback; exit 143' TERM
     trap '_asu_rollback; exit 130' INT
 
@@ -182,12 +215,15 @@ apply_script_upgrade() {
     _asu_ok=0
     if cp -af "$_asu_stage"/. "$CRASHDIR"/ 2>/dev/null && \
        ( CRASHDIR="$CRASHDIR" sh "$CRASHDIR"/init.sh >/dev/null ) && \
-       { [ "$_asu_was_running" = 0 ] || "$CRASHDIR"/start.sh start >/dev/null 2>&1; }; then
+       [ -f "$_asu_txn/pending" ] && \
+       { [ ! -s "$_asu_stage/version" ] || cmp -s "$_asu_stage/version" "$CRASHDIR/version"; } && \
+       { [ "$_asu_was_running" = 0 ] || { "$CRASHDIR"/start.sh start >/dev/null 2>&1 && { [ ! -x "$TMPDIR/CrashCore" ] || pidof CrashCore >/dev/null 2>&1; }; }; }; then
         _asu_ok=1
     fi
 
     trap - TERM INT
     if [ "$_asu_ok" = 1 ]; then
+        unset _SC_UPG_ACTIVE
         rm -rf "$_asu_stage" "$_asu_txn"
         return 0
     else

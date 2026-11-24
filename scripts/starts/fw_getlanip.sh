@@ -146,17 +146,24 @@ build_host_ipv6() {
 
 getlanip() { #获取局域网host地址
     i=1
-    while [ "$i" -le "20" ]; do
+    _lan_max_wait=3
+    # 若仅存在回环/虚拟隧道网卡、已指定自定义网段或非首次冷启动，无需轮询等待物理 LAN 口就绪
+    if { [ "$replace_default_host_ipv4" = "ON" ] && [ -n "$cust_host_ipv4" ]; } || \
+       [ -f "$TMPDIR"/ShellCrash.log ] || [ -f "$TMPDIR"/crash_start_time ] || \
+       ! ip -o link show 2>/dev/null | awk -F': ' '{sub(/@.*/, "", $2)} $2 !~ /^(lo|utun|tun|tap|docker|podman|virbr|veth|wg|tailscale)/ {found=1} END {exit !found}'; then
+        _lan_max_wait=1
+    fi
+    while [ "$i" -le "$_lan_max_wait" ]; do
         #ipv4局域网网段
-        host_ipv4=$(ip route show scope link | grep -Ev 'default|wan|utun|iot|peer|docker|podman|virbr|vnet|ovs|vmbr|veth|vmnic|vboxnet|lxcbr|xenbr|vEthernet|wgs|multicast|anycast' | awk '{print $1}')
+        host_ipv4=$(ip route show scope link 2>/dev/null | grep -Ev 'default|wan|utun|iot|peer|docker|podman|virbr|vnet|ovs|vmbr|veth|vmnic|vboxnet|lxcbr|xenbr|vEthernet|wgs|multicast|anycast' | awk '{print $1}')
         #ipv6局域网网段
         if [ "$ipv6_redir" = "ON" ]; then
             lan_ifaces=$(get_lan_ifaces)
             detected_host_ipv6=$(get_ipv6_prefixes)
         fi
-        [ -f "$TMPDIR"/ShellCrash.log ] && break
         [ -n "$host_ipv4" ] && [ "$ipv6_redir" != "ON" ] && break
         [ -n "$host_ipv4" ] && [ -n "$detected_host_ipv6" ] && break
+        [ "$i" -ge "$_lan_max_wait" ] && break
         sleep 1 && i=$((i + 1))
     done
     #Tailscale

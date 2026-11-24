@@ -31,40 +31,42 @@ if [ -n "$test" -o -n "$(pidof CrashCore)" ]; then
 		. "$CRASHDIR"/libs/web_restore.sh
 		web_restore >/dev/null 2>&1
 	}
-	#推送日志
+	#推送日志（关闭继承的管道描述符，防止阻塞调用方或超时包装器）
 	{
 		sleep 5
 		logger ShellCrash服务已启动！
-	} &
+	} >/dev/null 2>&1 </dev/null &
 	ckcmd mtd_storage.sh && mtd_storage.sh save >/dev/null 2>&1 #Padavan保存/etc/storage
-	#加载定时任务
-	set -- -
-	for cron_file in "$TASKCFGDIR/cron" "$TASKCFGDIR/running"; do
-		[ ! -e "$cron_file" ] || set -- "$@" "$cron_file"
-	done
-	# shellcheck disable=SC2016
-	CRON_BOT="$bot_tg_service" CRON_LEGACY="$start_old" CRON_DIR="$CRASHDIR" cronupdate awk '
-		NF && !seen[$0]++ { print }
-		END {
-			if (ENVIRON["CRON_BOT"] == "ON") {
-				line = "* * * * * /bin/sh " ENVIRON["CRON_DIR"] "/starts/start_legacy_wd.sh bot_tg #ShellCrash-TG_BOT守护进程"
-				if (!seen[line]++) print line
+	#加载定时任务（若宿主存在 cron 子系统则同步守护与持久化任务）
+	if crontab -h 2>&1 | grep -q '\-l' || { [ -d "$crondir" ] && [ -r "$crondir" ] && [ -x "$crondir" ]; }; then
+		set -- -
+		for cron_file in "$TASKCFGDIR/cron" "$TASKCFGDIR/running"; do
+			[ ! -e "$cron_file" ] || set -- "$@" "$cron_file"
+		done
+		# shellcheck disable=SC2016
+		CRON_BOT="$bot_tg_service" CRON_LEGACY="$start_old" CRON_DIR="$CRASHDIR" cronupdate awk '
+			NF && !seen[$0]++ { print }
+			END {
+				if (ENVIRON["CRON_BOT"] == "ON") {
+					line = "* * * * * /bin/sh " ENVIRON["CRON_DIR"] "/starts/start_legacy_wd.sh bot_tg #ShellCrash-TG_BOT守护进程"
+					if (!seen[line]++) print line
+				}
+				if (ENVIRON["CRON_LEGACY"] == "ON") {
+					line = "* * * * * /bin/sh " ENVIRON["CRON_DIR"] "/starts/start_legacy_wd.sh shellcrash #ShellCrash保守模式守护进程"
+					if (!seen[line]++) print line
+				}
 			}
-			if (ENVIRON["CRON_LEGACY"] == "ON") {
-				line = "* * * * * /bin/sh " ENVIRON["CRON_DIR"] "/starts/start_legacy_wd.sh shellcrash #ShellCrash保守模式守护进程"
-				if (!seen[line]++) print line
-			}
-		}
-	' "$@" || exit 1
+		' "$@" || exit 1
+	fi
 	#加载条件任务
-	[ -s "$TASKCFGDIR"/afstart ] && { . "$TASKCFGDIR"/afstart; } &
+	[ -s "$TASKCFGDIR"/afstart ] && { . "$TASKCFGDIR"/afstart; } >/dev/null 2>&1 </dev/null &
 	[ -s "$TASKCFGDIR"/affirewall -a -s /etc/init.d/firewall -a ! -f /etc/init.d/firewall.bak ] && {
 		#注入防火墙（安全加固：仅取首行行号且非空时才注入，避免多行匹配或空行号破坏 firewall 脚本）
 		line=$(grep -En "fw.* restart" /etc/init.d/firewall | head -n 1 | cut -d ":" -f 1)
 		[ -n "$line" ] && sed -i.bak "${line}a\\. $TASKCFGDIR/affirewall" /etc/init.d/firewall
 		line=$(grep -En "fw.* start" /etc/init.d/firewall | head -n 1 | cut -d ":" -f 1)
 		[ -n "$line" ] && sed -i "${line}a\\. $TASKCFGDIR/affirewall" /etc/init.d/firewall
-	} &
+	} >/dev/null 2>&1 </dev/null &
 	exit 0
 else
 	. "$CRASHDIR"/starts/start_error.sh

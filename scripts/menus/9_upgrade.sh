@@ -168,10 +168,18 @@ getscripts() {
 
 setscripts() {
     while true; do
-        comp_box "\033[33m$UPG_SCRIPT_WARN\033[0m" \
-            "" \
-            "$UPG_SCRIPT_CUR_VER\033[36m$versionsh_l\033[0m" \
-            "$UPG_SCRIPT_NEW_VER\033[32m$version_new\033[0m"
+        if [ -n "$version_new" ] && [ "$versionsh_l" = "$version_new" ]; then
+            comp_box "\033[33m$UPG_SCRIPT_WARN\033[0m" \
+                "" \
+                "$UPG_SCRIPT_CUR_VER\033[36m$versionsh_l\033[0m" \
+                "$UPG_SCRIPT_NEW_VER\033[32m$version_new\033[0m" \
+                "\033[36m$UPG_SCRIPT_ALREADY_LATEST\033[0m"
+        else
+            comp_box "\033[33m$UPG_SCRIPT_WARN\033[0m" \
+                "" \
+                "$UPG_SCRIPT_CUR_VER\033[36m$versionsh_l\033[0m" \
+                "$UPG_SCRIPT_NEW_VER\033[32m$version_new\033[0m"
+        fi
         btm_box "1) $UPG_UPDATE_NOW" \
             "0) $COMMON_BACK"
         read -r -p "$COMMON_INPUT> " res

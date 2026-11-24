@@ -38,8 +38,7 @@ setup_sandbox() {
     cp -f "$CORES/geo/cn.mrs" "$_sb/crash/ruleset/cn.mrs"
     cp -f "$CORES/geo/cn.srs" "$_sb/crash/ruleset/cn.srs"
     cp -f "$CORES/geo/cnip.srs" "$_sb/crash/ruleset/cnip.srs"
-    cp -f "$CORES/$_core/CrashCore" "$_sb/tmp/CrashCore"
-    chmod +x "$_sb/tmp/CrashCore"
+    ln -sf "$CORES/$_core/CrashCore" "$_sb/tmp/CrashCore"
     cat > "$_sb/crash/configs/directories.env" <<EOF
 TMPDIR=$_sb/tmp
 BINDIR=$_sb/crash
@@ -83,6 +82,7 @@ EOF
         modify_yaml || exit 1
         "$TMPDIR/CrashCore" -t -d "$BINDIR" -f "$TMPDIR/config.yaml" >/dev/null || exit 1
     ) || exit 1
+    rm -rf "$SB"
     echo "  PASS meta empty-proxies dns_mod=$dmod"
 done
 
@@ -139,6 +139,7 @@ B64_JSON=$(printf '%s' '{"outbounds":[{"type":"socks","tag":"JP-B64JSON","server
     modify_yaml || exit 1
     "$TMPDIR/CrashCore" -t -d "$BINDIR" -f "$TMPDIR/config.yaml" >/dev/null || exit 1
 ) || exit 1
+rm -rf "$SB"
 echo "  PASS meta local_sub_convert + URI + YAML + include/exclude"
 
 echo "=== 3. Mihomo: broken base config fails modify_yaml (non-zero) ==="
@@ -169,6 +170,7 @@ if (
     echo "  FAIL: meta broken base config unexpectedly succeeded" >&2
     exit 1
 fi
+rm -rf "$SB"
 echo "  PASS meta broken base config returned non-zero"
 
 echo "=== 4. Sing-BoxR: local_sub_convert (none / include / exclude / both / b64json) + all DNS modes ==="
@@ -226,6 +228,7 @@ EOF
             "$TMPDIR/CrashCore" check -D "$BINDIR" -C "$TMPDIR/jsons" || exit 1
         done
     ) || exit 1
+    rm -rf "$SB"
     echo "  PASS singboxr filter_case=$filter_case across all 4 DNS modes"
 done
 
@@ -262,6 +265,7 @@ EOF
     modify_json || exit 1
     "$TMPDIR/CrashCore" check -D "$BINDIR" -C "$TMPDIR/jsons" || exit 1
 ) || exit 1
+rm -rf "$SB"
 echo "  PASS singboxr .json cached provider fallback"
 
 echo "=== 6. Stock Sing-Box: native JSON + all 4 DNS modes (incl. fake-ip filter list & doh://) + reject singboxr provider build ==="

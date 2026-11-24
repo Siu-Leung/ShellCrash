@@ -1,6 +1,6 @@
 
-# 检查未完成的升级事务并自动回滚自愈，再加载配置文件
-[ -f "$CRASHDIR/.upg_txn/pending" ] && . "$CRASHDIR"/libs/set_config.sh && recover_interrupted_upgrade
+# 检查未完成的升级事务并自动回滚自愈（正在执行升级的子进程不触发回滚），再加载配置文件
+[ -z "$_SC_UPG_ACTIVE" ] && [ -f "$CRASHDIR/.upg_txn/pending" ] && . "$CRASHDIR"/libs/set_config.sh && recover_interrupted_upgrade
 [ -z "$TASKCFGDIR" ] && TASKCFGDIR="$CRASHDIR"/configs/task
 [ -f "$CRASHDIR"/configs/ShellCrash.cfg ] || . "$CRASHDIR"/init.sh >/dev/null 2>&1
 [ -f "$CRASHDIR"/configs/directories.env ] && . "$CRASHDIR"/configs/directories.env >/dev/null 2>&1

@@ -37,7 +37,7 @@ start_l(){
     bfstart || return 1
     . "$CRASHDIR"/starts/start_legacy.sh
     start_legacy "$COMMAND" 'shellcrash'
-    afstart &
+    afstart >/dev/null 2>&1 </dev/null &
 }
 
 case "$1" in
@@ -57,15 +57,15 @@ start)
         /etc/init.d/shellcrash start
     elif is_root_user && grep -q 'systemd' /proc/1/comm 2>/dev/null; then
         FragmentPath=$(systemctl show -p FragmentPath shellcrash | sed 's/FragmentPath=//')
-        [ -f "$FragmentPath" ] && {
+        if [ -f "$FragmentPath" ] && ! grep -Fxq "ExecStart=$COMMAND" "$FragmentPath"; then
             sed -i "s#^ExecStart=.*#ExecStart=$COMMAND#" "$FragmentPath"
             systemctl daemon-reload
-        }
+        fi
         systemctl start shellcrash.service || { . "$CRASHDIR"/starts/start_error.sh; exit 1; }
     elif grep -q 's6' /proc/1/comm 2>/dev/null; then
         bfstart && /command/s6-svc -u /run/service/shellcrash && {
             [ ! -f "$CRASHDIR"/.dis_startup ] && enable_s6_autostart_marks
-            afstart &
+            afstart >/dev/null 2>&1 </dev/null &
         }
     elif rc-status -r >/dev/null 2>&1; then
         rc-service shellcrash stop >/dev/null 2>&1

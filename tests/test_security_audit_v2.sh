@@ -787,10 +787,178 @@ else
     bad "V4.1: local_normalize_sub_file 未能识别 b64json"
 fi
 
+echo '== 14. V5 真实 systemd 验收复现问题回归（运行态升级防自回滚 / 单元 ExecStart / 旧版 107 恢复 / 快速启动）=='
+
+# 14a. 运行态升级：新 start.sh 与无环境变量的 systemd 钩子（env -i 加载 get_config.sh）均不得将正在进行的升级误判为中断回滚
+V5="$TMP/v5_run_upg"
+mkdir -p "$V5/inst/configs" "$V5/inst/libs" "$V5/inst/starts" "$V5/pkg/libs" "$V5/pkg/starts" "$V5/pkg/menus" "$V5/tmp" "$V5/bin"
+cp "$ROOT/scripts/libs/set_config.sh" "$V5/inst/libs/set_config.sh"
+cp "$ROOT/scripts/libs/get_config.sh" "$V5/inst/libs/get_config.sh"
+cp "$ROOT/scripts/libs/set_profile.sh" "$V5/inst/libs/set_profile.sh"
+cp "$ROOT/scripts/libs/set_config.sh" "$V5/pkg/libs/set_config.sh"
+cp "$ROOT/scripts/libs/get_config.sh" "$V5/pkg/libs/get_config.sh"
+cp "$ROOT/scripts/libs/set_profile.sh" "$V5/pkg/libs/set_profile.sh"
+cp "$ROOT/scripts/init.sh" "$V5/pkg/init.sh"
+cp "$ROOT/scripts/init.sh" "$V5/inst/init.sh"
+for f in bfstart.sh afstart.sh fw_stop.sh fw_ipv6_watch.sh; do printf '#!/bin/sh\nexit 0\n' > "$V5/pkg/starts/$f"; done
+for f in task_cmd.sh bot_tg.sh; do printf '#!/bin/sh\nexit 0\n' > "$V5/pkg/menus/$f"; done
+
+# 伪造 pidof 基于状态文件判断 CrashCore 运行态，同时放置可执行 $TMPDIR/CrashCore 以触发真实存活校验
+cat > "$V5/bin/pidof" <<EOF
+#!/bin/sh
+[ "\$1" = "CrashCore" ] && [ -f "$V5/tmp/core.alive" ] && { echo 42424; exit 0; }
+exit 1
+EOF
+printf '#!/bin/sh\nexit 0\n' > "$V5/tmp/CrashCore"
+chmod +x "$V5/bin/pidof" "$V5/tmp/CrashCore"
+: > "$V5/tmp/core.alive"
+
+cat > "$V5/inst/configs/ShellCrash.cfg" <<'EOF'
+#ShellCrash配置文件，不明勿动！
+versionsh_l=1.9.7-hardened.2-audit-before
+start_old=ON
+firewall_mod=nftables
+crashcore=meta
+my_alias=crash
+EOF
+printf '1.9.7-hardened.2-audit-before\n' > "$V5/inst/version"
+printf '#!/bin/sh\n# old-menu\nexit 0\n' > "$V5/inst/menu.sh"
+cat > "$V5/inst/start.sh" <<EOF
+#!/bin/sh
+# old-start
+. "\$CRASHDIR/libs/get_config.sh"
+[ "\$1" = "stop" ] && rm -f "$V5/tmp/core.alive"
+[ "\$1" = "start" ] && : > "$V5/tmp/core.alive"
+exit 0
+EOF
+chmod +x "$V5/inst/start.sh" "$V5/inst/menu.sh" "$V5/inst/init.sh"
+
+printf '1.9.7-hardened.3\n' > "$V5/pkg/version"
+printf '#!/bin/sh\n# new-menu-v3\nexit 0\n' > "$V5/pkg/menu.sh"
+cat > "$V5/pkg/start.sh" <<EOF
+#!/bin/sh
+# new-start-v3
+. "\$CRASHDIR/libs/get_config.sh"
+if [ "\$1" = "start" ]; then
+    # 模拟 systemd PID 1 通过 D-Bus 在完全清洁环境中执行 ExecStartPre/Post (bfstart/afstart 加载 get_config.sh)
+    env -i PATH="\$PATH" CRASHDIR="\$CRASHDIR" sh -c '. "\$CRASHDIR/libs/get_config.sh"' || exit 1
+    : > "$V5/tmp/core.alive"
+fi
+[ "\$1" = "stop" ] && rm -f "$V5/tmp/core.alive"
+exit 0
+EOF
+chmod +x "$V5/pkg/start.sh" "$V5/pkg/menu.sh" "$V5/pkg/init.sh"
+tar -czf "$V5/upg_v3.tar.gz" -C "$V5/pkg" .
+
+if PATH="$V5/bin:$PATH" CRASHDIR="$V5/inst" TMPDIR="$V5/tmp" sh -c ". '$V5/inst/libs/set_config.sh'; apply_script_upgrade '$V5/upg_v3.tar.gz'"; then
+    _v_after=$(tr -d '\r\n ' < "$V5/inst/version")
+    if [ "$_v_after" = "1.9.7-hardened.3" ] && \
+       grep -q '^versionsh_l=1.9.7-hardened.3$' "$V5/inst/configs/ShellCrash.cfg" && \
+       grep -q '# new-start-v3' "$V5/inst/start.sh" && \
+       [ ! -e "$V5/inst/.upg_txn" ] && [ -f "$V5/tmp/core.alive" ]; then
+        ok "V5: 运行态升级不再被自身或 systemd 清洁环境钩子误回滚，版本与 start.sh 真实更新且核心恢复运行"
+    else
+        bad "V5: 运行态升级返回 0 但状态不符 (version=$_v_after)"
+    fi
+else
+    bad "V5: 正常运行态升级返回非零"
+fi
+
+# 14b. 运行态升级后核心未存活（即使 start.sh 退出 0）：必须判定失败、完整回滚并返回非零
+printf '1.9.7-hardened.4-broken\n' > "$V5/pkg/version"
+cat > "$V5/pkg/start.sh" <<EOF
+#!/bin/sh
+# broken-start-no-core
+. "\$CRASHDIR/libs/get_config.sh"
+rm -f "$V5/tmp/core.alive"
+exit 0
+EOF
+tar -czf "$V5/upg_broken.tar.gz" -C "$V5/pkg" .
+if PATH="$V5/bin:$PATH" CRASHDIR="$V5/inst" TMPDIR="$V5/tmp" sh -c ". '$V5/inst/libs/set_config.sh'; apply_script_upgrade '$V5/upg_broken.tar.gz'" >/dev/null 2>&1; then
+    bad "V5: 新版启动后核心未存活却仍返回 0"
+else
+    _v_rb=$(tr -d '\r\n ' < "$V5/inst/version")
+    if [ "$_v_rb" = "1.9.7-hardened.3" ] && grep -q '# new-start-v3' "$V5/inst/start.sh" && [ -f "$V5/tmp/core.alive" ]; then
+        ok "V5: 新版启动后核心未存活时返回非零并完整回滚至上一可用版本且恢复运行"
+    else
+        bad "V5: 核心未存活回滚后状态异常 (version=$_v_rb)"
+    fi
+fi
+
+# 14c. systemd 单元默认路径与 init.sh 展开命令校验
+assert_yes "$ROOT/scripts/starts/shellcrash.service" '^ExecStart=/tmp/ShellCrash/CrashCore -d /etc/ShellCrash -f /tmp/ShellCrash/config\.yaml$' 'V5: shellcrash.service 默认 ExecStart 指向 /tmp/ShellCrash/CrashCore 与 Mihomo 参数'
+assert_yes "$ROOT/scripts/init.sh" '_installed_systemd_unit=' 'V5: init.sh 在解析 TMPDIR/BINDIR 后同步改写 systemd 单元 ExecStart 并执行 daemon-reload'
+
+# 14d. 旧版 107 风格（1.9.6alpha1 菜单直接 source init.sh 且 $PID 非空）升级后自动恢复运行
+V5_107="$TMP/v5_legacy107"
+mkdir -p "$V5_107/configs" "$V5_107/task"
+cp -a "$ROOT/scripts"/. "$V5_107/"
+cp "$ROOT/version" "$V5_107/version"
+cat > "$V5_107/configs/ShellCrash.cfg" <<'EOF'
+#ShellCrash配置文件，不明勿动！
+versionsh_l=1.9.6alpha1
+crashcore=meta
+start_old=ON
+firewall_mod=nftables
+my_alias=crash
+EOF
+printf 'BINDIR=%s\nTMPDIR=%s/tmp\nCOMMAND="old"\n' "$V5_107" "$V5_107" > "$V5_107/configs/command.env"
+cat > "$V5_107/start.sh" <<EOF
+#!/bin/sh
+[ "\$1" = "start" ] && : > "$V5_107/restarted.ok"
+exit 0
+EOF
+chmod +x "$V5_107/start.sh"
+if CRASHDIR="$V5_107" __IS_MODULE_9_UPGRADE_LOADED=1 PID=9876 sh -c '. "$CRASHDIR/init.sh" >/dev/null'; then
+    if [ -f "$V5_107/configs/directories.env" ] && [ -f "$V5_107/restarted.ok" ]; then
+        ok "V5: 旧版 1.9.6alpha1 (107 布局) 运行态 source init.sh 升级后自动迁移目录并拉起服务"
+    else
+        bad "V5: 旧版 1.9.6alpha1 升级后未迁移 directories.env 或未自动重启服务"
+    fi
+else
+    bad "V5: 旧版 1.9.6alpha1 升级执行 init.sh 返回非零"
+fi
+
+# 14e. 仅 lo 网卡环境 getlanip 零等待返回 + 后台日志任务关闭继承管道不阻塞调用者
+V5_FAST="$TMP/v5_fast"
+mkdir -p "$V5_FAST/bin" "$V5_FAST/tmp"
+cat > "$V5_FAST/bin/ip" <<'EOF'
+#!/bin/sh
+case "$*" in
+    "-o link show"*) echo "1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536 qdisc noqueue state UNKNOWN mode DEFAULT group default qlen 1000" ;;
+    *) exit 0 ;;
+esac
+EOF
+chmod +x "$V5_FAST/bin/ip"
+_t0=$(date +%s)
+_out=$(PATH="$V5_FAST/bin:$PATH" CRASHDIR="$ROOT/scripts" TMPDIR="$V5_FAST/tmp" sh -c '
+    . "$CRASHDIR/libs/logger.sh"
+    . "$CRASHDIR/starts/fw_getlanip.sh"
+    getlanip
+    { sleep 5; logger "bg-done"; } >/dev/null 2>&1 </dev/null &
+    printf "%s" "$host_ipv4"
+')
+_t1=$(date +%s)
+if [ $((_t1 - _t0)) -le 2 ] && [ -n "$_out" ]; then
+    ok "V5: 仅 lo 环境 getlanip 与后台延迟日志耗时 $((_t1 - _t0))s 立即返回，不再阻塞 25s"
+else
+    bad "V5: getlanip 或后台任务耗时过长 ($((_t1 - _t0))s)"
+fi
+
+for lf in 9_upgrade.lang; do
+    _miss=$(awk -F= '/^[A-Za-z0-9_]+=/ {k[$1]=1} FILENAME==ARGV[2] && /^[A-Za-z0-9_]+=/ {delete k[$1]} END {for (x in k) print x}' \
+        "$ROOT/scripts/lang/chs/$lf" "$ROOT/scripts/lang/en/$lf")
+    if [ -z "$_miss" ]; then
+        ok "V5: lang/en/$lf 与 lang/chs/$lf 键 100% 同步"
+    else
+        bad "V5: lang/en/$lf 缺少键: $(echo "$_miss" | tr '\n' ' ')"
+    fi
+done
+
 echo ''
 if [ "$FAIL" -eq 0 ]; then
-    printf '\033[32mV2/V3/V4/V4.1 全面安全与逻辑审计回归测试全部通过\033[0m\n'
+    printf '\033[32mV2/V3/V4/V5 全面安全、逻辑与真实 systemd 验收回归测试全部通过\033[0m\n'
 else
-    printf '\033[31mV2/V3/V4/V4.1 审计回归测试失败 %d 项\033[0m\n' "$FAIL"
+    printf '\033[31mV2/V3/V4/V5 审计回归测试失败 %d 项\033[0m\n' "$FAIL"
     exit 1
 fi

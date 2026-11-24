@@ -2,10 +2,11 @@ name: Build Docker image for ShellCrash
 
 on:
   push:
-    branches: 
+    branches:
       - dev
     paths:
       - 'version'
+      - 'Dockerfile'
   workflow_dispatch:
 
 jobs:
@@ -20,10 +21,19 @@ jobs:
         uses: actions/checkout@v5
         with:
           fetch-depth: 1
-          
-      - name: Read version
-        id: read_version
-        run: echo "VERSION=$(cat version)" >> $GITHUB_ENV
+
+      - name: Read version and check push secrets
+        id: meta
+        env:
+          DH_USER: ${{ secrets.DOCKERHUB_USERNAME }}
+          DH_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          echo "VERSION=$(tr -d '\r\n ' < version)" >> "$GITHUB_ENV"
+          if [ -n "$DH_USER" ] && [ -n "$DH_TOKEN" ]; then
+            echo "can_push=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "can_push=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -32,12 +42,14 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Login to Docker Hub
+        if: steps.meta.outputs.can_push == 'true'
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Build and push (multi-arch)
+      - name: Build and push (multi-arch, when Docker Hub secrets configured)
+        if: steps.meta.outputs.can_push == 'true'
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -51,3 +63,13 @@ jobs:
           tags: |
             ${{ secrets.DOCKERHUB_USERNAME }}/shellcrash:latest
             ${{ secrets.DOCKERHUB_USERNAME }}/shellcrash:${{ env.VERSION }}
+
+      - name: Verify local Docker build (no registry push)
+        if: steps.meta.outputs.can_push != 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/amd64
+          push: false
+          tags: shellcrash:ci-verify

@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: shellcrash-update-branch
+  group: shellcrash-update-push
   cancel-in-progress: false
 
 jobs:
@@ -160,6 +160,14 @@ jobs:
         set -euo pipefail
         # 清理上游已停更的历史旧版 clash(v1.7.1) 与 hfs.exe 残留，保证 update 分支 100% 自主构建
         rm -rf bin/clash bin/hfs
+        [ -f bin/version ] && sed -i '/^clash_v=/d' bin/version
+        # 生成全量产物 SHA-256 校验清单（供完整性核验）
+        rm -f bin/SHA256SUMS
+        (
+          [ -f ShellCrash.tar.gz ] && sha256sum ShellCrash.tar.gz
+          [ -f version ] && sha256sum version
+          find bin -type f ! -name 'SHA256SUMS' | sort | xargs -r sha256sum
+        ) > bin/SHA256SUMS
         # 彻底删除历史记录
         rm -rf .git
         # 重新初始化仓库
@@ -172,12 +180,17 @@ jobs:
         git branch -M update
         git remote add origin "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"
         git push -f origin update
-        # 刷新 CDN 缓存（保留完整路径 bin/...，修复原 ${file#bin/} 导致缓存从未刷新的 bug）
+        # 刷新 CDN 缓存（同步刷新 @dev 脚本包与 @update 全量静态资源，解决 R1 浮动缓存陈旧问题）
         sleep 60
+        for devf in ShellCrash.tar.gz version install.sh install_en.sh; do
+          curl -s "https://purge.jsdelivr.net/gh/Siu-Leung/ShellCrash@dev/${devf}" || true
+          curl -s "https://purge.jsdelivr.net/gh/Siu-Leung/ShellCrash@update/${devf}" || true
+        done
         find bin/dashboard bin/geodata bin/ruleset bin/fix -type f 2>/dev/null | while read -r file; do
           curl -s "https://purge.jsdelivr.net/gh/Siu-Leung/ShellCrash@update/${file}" || true
         done
         curl -s https://purge.jsdelivr.net/gh/Siu-Leung/ShellCrash@update/bin/version || true
+        curl -s https://purge.jsdelivr.net/gh/Siu-Leung/ShellCrash@update/bin/SHA256SUMS || true
     - name: Cleanup Workflow
       uses: Mattraks/delete-workflow-runs@main
       with:

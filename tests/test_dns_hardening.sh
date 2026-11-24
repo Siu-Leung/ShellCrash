@@ -68,11 +68,11 @@ ip_in_cidr_test 198.20.0.1 198.18.0.0/15 && bad "边界外误判" || ok "边界�
 echo '== 3. sb_convert_domain_rules (singbox 规则分类) =='
 . "$ROOT/scripts/starts/singbox_modify.sh" >/dev/null 2>&1 || true
 TF=$(mktemp)
-printf '# comment\n\nfoo.com\n*.example.com\n+.apple.com\ntime.*.google.com\n' >"$TF"
+printf '# comment\n\n*\nfoo.com\n*.example.com\n+.apple.com\ntime.*.google.com\n+.stun.*.*\n' >"$TF"
 sb_convert_domain_rules "$TF"
 case "$_fp_domain" in *'"foo.com"'*) ok "纯域名->domain" ;; *) bad "纯域名分类: [$_fp_domain]" ;; esac
 case "$_fp_suffix" in *'"example.com"'*'"apple.com"'*) ok "通配后缀->domain_suffix" ;; *) bad "后缀分类: [$_fp_suffix]" ;; esac
-case "$_fp_regex" in *'time\..*\.google\.com'*) ok "内部通配->domain_regex且点已转义" ;; *) bad "正则分类: [$_fp_regex]" ;; esac
+case "$_fp_regex" in *'"^[^.]+$"'*'"^time\\..*\\.google\\.com$"'*) ok "内部通配与裸*->合法JSON domain_regex" ;; *) bad "正则分类: [$_fp_regex]" ;; esac
 rm -f "$TF"
 
 echo '== 4. dns_cfg_append 去重与校验 =='

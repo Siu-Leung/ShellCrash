@@ -45,45 +45,75 @@ core_find(){
         [ -n "$core_dir" ] && core_unzip "$core_dir" CrashCore
     fi
 }
+core_rollback(){ #内核更新启动失败时恢复上一套可用内核与元信息
+    [ -d "$TMPDIR/core_bak" ] || return 1
+    rm -f "$BINDIR"/CrashCore.tar.gz "$BINDIR"/CrashCore.gz "$BINDIR"/CrashCore.upx "$BINDIR"/CrashCore.raw "$TMPDIR"/CrashCore
+    for _bf in "$TMPDIR"/core_bak/CrashCore.*; do
+        [ -f "$_bf" ] && mv -f "$_bf" "$BINDIR/"
+    done
+    [ -n "$CORE_PREV_V" ] && { core_v="$CORE_PREV_V"; setconfig core_v "$core_v"; }
+    [ -n "$CORE_PREV_CMD" ] && { COMMAND="$CORE_PREV_CMD"; setconfig COMMAND "$COMMAND" "$CRASHDIR"/configs/command.env; }
+    [ -n "$CORE_PREV_TYPE" ] && { crashcore="$CORE_PREV_TYPE"; setconfig crashcore "$crashcore"; }
+    rm -rf "$TMPDIR/core_bak"
+    return 0
+}
 core_check(){
-    [ -n "$(pidof CrashCore)" ] && "$CRASHDIR"/start.sh stop #停止内核服务防止内存不足
+    CORE_PREV_V="$core_v"
+    CORE_PREV_CMD="$COMMAND"
+    CORE_PREV_TYPE="$crashcore"
+    # 安全加固：先对候选内核做解压与二进制自检，通过前绝不删除既有可用内核
+    rm -f "$TMPDIR"/core_new
     core_unzip "$1" core_new
     sbcheck=$(echo "$crashcore" | grep 'singbox')
     v=''
     if [ -n "$sbcheck" ] && "$TMPDIR"/core_new -h 2>&1 | grep -q 'sing-box'; then
         v=$("$TMPDIR"/core_new version 2>/dev/null | grep version | awk '{print $3}')
-        COMMAND='"$TMPDIR/CrashCore run -D $BINDIR -C $TMPDIR/jsons"'
+        _new_cmd='"$TMPDIR/CrashCore run -D $BINDIR -C $TMPDIR/jsons"'
     elif [ -z "$sbcheck" ] && "$TMPDIR"/core_new -h 2>&1 | grep -q '\-t';then
         v=$("$TMPDIR"/core_new -v 2>/dev/null | head -n 1 | sed 's/ linux.*//;s/.* //')
-        COMMAND='"$TMPDIR/CrashCore -d $BINDIR -f $TMPDIR/config.yaml"'
+        _new_cmd='"$TMPDIR/CrashCore -d $BINDIR -f $TMPDIR/config.yaml"'
     fi
     if [ -z "$v" ]; then
         rm -rf "$1" "$TMPDIR"/core_new
         return 2
-    else
-        rm -f "$BINDIR"/CrashCore.tar.gz "$BINDIR"/CrashCore.gz "$BINDIR"/CrashCore.upx "$BINDIR"/CrashCore.raw
-        if [ "$zip_type" = 'upx' ];then
-            mv -f "$1" "$BINDIR/CrashCore.upx"
-            rm -f "$TMPDIR"/core_new
-            ln -sf "$BINDIR/CrashCore.upx" "$TMPDIR/CrashCore"
-        elif store_raw_worth_it "$(wc -c < "$TMPDIR/core_new")" ;then
-            rm -f "$1"
-            mv -f "$TMPDIR/core_new" "$BINDIR/CrashCore.raw"
-            ln -sf "$BINDIR/CrashCore.raw" "$TMPDIR/CrashCore"
-        elif [ -z "$zip_type" ];then
-            gzip -c "$TMPDIR/core_new" > "$BINDIR/CrashCore.gz"
-            mv -f "$TMPDIR/core_new" "$TMPDIR/CrashCore"
-        else
-            mv -f "$1" "$BINDIR/CrashCore.$zip_type"
-            mv -f "$TMPDIR/core_new" "$TMPDIR/CrashCore"
-        fi
-        core_v="$v"
-        setconfig COMMAND "$COMMAND" "$CRASHDIR"/configs/command.env && . "$CRASHDIR"/configs/command.env
-        setconfig crashcore "$crashcore"
-        setconfig core_v "$core_v"
-        setconfig_quote custcorelink "$custcorelink"
-        return 0
     fi
+    # 候选 Clash/Mihomo 内核若存在现用 config.yaml，额外做离线语法预检
+    if [ -z "$sbcheck" ] && [ -s "$BINDIR/config.yaml" ]; then
+        "$TMPDIR"/core_new -t -d "$BINDIR" -f "$BINDIR/config.yaml" >/dev/null 2>&1 || {
+            rm -rf "$1" "$TMPDIR"/core_new
+            return 2
+        }
+    fi
+    # 备份旧内核归档至 $TMPDIR/core_bak，便于后续启动失败时自动回滚
+    rm -rf "$TMPDIR/core_bak"
+    mkdir -p "$TMPDIR/core_bak"
+    for _oldf in "$BINDIR"/CrashCore.tar.gz "$BINDIR"/CrashCore.gz "$BINDIR"/CrashCore.upx "$BINDIR"/CrashCore.raw; do
+        [ -f "$_oldf" ] && cp -f "$_oldf" "$TMPDIR/core_bak/" 2>/dev/null
+    done
+    [ -n "$(pidof CrashCore)" ] && "$CRASHDIR"/start.sh stop #停止旧内核准备切换
+    rm -f "$BINDIR"/CrashCore.tar.gz "$BINDIR"/CrashCore.gz "$BINDIR"/CrashCore.upx "$BINDIR"/CrashCore.raw
+    _swap_ok=0
+    if [ "$zip_type" = 'upx' ];then
+        mv -f "$1" "$BINDIR/CrashCore.upx" && rm -f "$TMPDIR"/core_new && ln -sf "$BINDIR/CrashCore.upx" "$TMPDIR/CrashCore" && _swap_ok=1
+    elif store_raw_worth_it "$(wc -c < "$TMPDIR/core_new")" ;then
+        mv -f "$TMPDIR/core_new" "$BINDIR/CrashCore.raw" && rm -f "$1" && ln -sf "$BINDIR/CrashCore.raw" "$TMPDIR/CrashCore" && _swap_ok=1
+    elif [ -z "$zip_type" ];then
+        gzip -c "$TMPDIR/core_new" > "$BINDIR/CrashCore.gz" && mv -f "$TMPDIR/core_new" "$TMPDIR/CrashCore" && _swap_ok=1
+    else
+        mv -f "$1" "$BINDIR/CrashCore.$zip_type" && mv -f "$TMPDIR/core_new" "$TMPDIR/CrashCore" && _swap_ok=1
+    fi
+    if [ "$_swap_ok" != 1 ]; then
+        core_rollback
+        rm -rf "$1" "$TMPDIR"/core_new
+        return 2
+    fi
+    COMMAND="$_new_cmd"
+    core_v="$v"
+    setconfig COMMAND "$COMMAND" "$CRASHDIR"/configs/command.env && . "$CRASHDIR"/configs/command.env
+    setconfig crashcore "$crashcore"
+    setconfig core_v "$core_v"
+    setconfig_quote custcorelink "$custcorelink"
+    return 0
 }
 core_webget(){
     . "$CRASHDIR"/libs/web_get_bin.sh

@@ -26,12 +26,12 @@ task_logger(){
 }
 
 #任务命令
-check_update(){ #检查更新工具
+check_update(){ #检查更新工具（安全加固：纯数据解析 bin/version，禁止 source 执行远端文件）
     get_bin "$TMPDIR"/crashversion "$1" echooff
-    [ "$?" = "0" ] && . "$TMPDIR"/crashversion 2>/dev/null
+    [ "$?" = "0" ] && load_version_file "$TMPDIR"/crashversion
     rm -rf "$TMPDIR"/crashversion
 }
-update_core(){ #自动更新内核
+update_core(){ #自动更新内核（带启动失败自动回滚）
     #检查版本
     check_update bin/version
     # 安全加固：eval 取间接变量有注入风险，改用白名单函数（get_config.sh 已在本文件头部加载）
@@ -43,9 +43,16 @@ update_core(){ #自动更新内核
         . "$CRASHDIR"/libs/core_tools.sh && core_webget #调用下载工具
         case "$?" in
         0)
-            task_logger "$TASK_CMD_CORE_DONE"
-            "$CRASHDIR"/start.sh start
-            return 0
+            if "$CRASHDIR"/start.sh start; then
+                rm -rf "$TMPDIR/core_bak"
+                task_logger "$TASK_CMD_CORE_DONE"
+                return 0
+            else
+                # 新内核启动失败：自动回滚至上一套可用内核并重启
+                core_rollback && "$CRASHDIR"/start.sh start >/dev/null 2>&1
+                task_logger "$TASK_CMD_CORE_VERIFY_FAIL"
+                return 1
+            fi
         ;;
         1)
             task_logger "$TASK_CMD_CORE_DL_FAIL"
@@ -53,14 +60,14 @@ update_core(){ #自动更新内核
         ;;
         *)
             task_logger "$TASK_CMD_CORE_VERIFY_FAIL"
-            "$CRASHDIR"/start.sh start
+            [ -z "$(pidof CrashCore 2>/dev/null)" ] && "$CRASHDIR"/start.sh start
             return 1
         ;;
         esac
     fi
 }
-update_scripts(){ #自动更新脚本
-    #检查版本（version 文件为纯版本号文本，如 1.9.6alpha1）
+update_scripts(){ #自动更新脚本（安全加固：暂存校验 + 备份切换 + 失败自动回滚）
+    #检查版本（version 文件为纯版本号文本，如 1.9.7-hardened.1）
     versionsh=""
     get_bin "$TMPDIR"/crashversion version echooff
     [ "$?" = "0" ] && versionsh=$(head -n 1 "$TMPDIR"/crashversion | tr -d '\r\n ')
@@ -74,21 +81,34 @@ update_scripts(){ #自动更新脚本
             rm -rf "$TMPDIR"/ShellCrash.tar.gz
             task_logger "$TASK_CMD_CORE_DL_FAIL"
             return 1
+        fi
+        _upg_stage="$TMPDIR/upg_stage.$$"
+        _upg_bak="$TMPDIR/upg_bak.$$"
+        rm -rf "$_upg_stage" "$_upg_bak"
+        mkdir -p "$_upg_stage" "$_upg_bak"
+        if ! safe_tar_check "$TMPDIR/ShellCrash.tar.gz" || \
+           ! tar -zxf "$TMPDIR"/ShellCrash.tar.gz ${tar_para} -C "$_upg_stage" || \
+           [ ! -s "$_upg_stage/start.sh" ] || [ ! -s "$_upg_stage/menu.sh" ] || [ ! -s "$_upg_stage/init.sh" ] || \
+           ! sh -n "$_upg_stage/start.sh" 2>/dev/null || ! sh -n "$_upg_stage/menu.sh" 2>/dev/null || ! sh -n "$_upg_stage/init.sh" 2>/dev/null; then
+            rm -rf "$_upg_stage" "$_upg_bak" "$TMPDIR"/ShellCrash.tar.gz
+            task_logger "$TASK_CMD_SCRIPT_UNZIP_FAIL"
+            return 1
+        fi
+        for _item in start.sh menu.sh init.sh version libs menus starts lang task; do
+            [ -e "$CRASHDIR/$_item" ] && cp -a "$CRASHDIR/$_item" "$_upg_bak/" 2>/dev/null
+        done
+        _was_running=0
+        [ -n "$(pidof CrashCore 2>/dev/null)" ] && _was_running=1
+        "$CRASHDIR"/start.sh stop
+        if cp -af "$_upg_stage"/. "$CRASHDIR"/ && . "$CRASHDIR"/init.sh >/dev/null && { [ "$_was_running" = 0 ] || "$CRASHDIR"/start.sh start; }; then
+            rm -rf "$_upg_stage" "$_upg_bak" "$TMPDIR"/ShellCrash.tar.gz
+            return 0
         else
-            #停止服务
-            "$CRASHDIR"/start.sh stop
-            #解压
-            tar -zxf "$TMPDIR"/ShellCrash.tar.gz ${tar_para} -C "$CRASHDIR"/
-            if [ $? -ne 0 ];then
-                rm -rf "$TMPDIR"/ShellCrash.tar.gz
-                task_logger "$TASK_CMD_SCRIPT_UNZIP_FAIL"
-                "$CRASHDIR"/start.sh start
-                return 1
-            else
-                . "$CRASHDIR"/init.sh >/dev/null
-                "$CRASHDIR"/start.sh start
-                return 0
-            fi
+            cp -af "$_upg_bak"/. "$CRASHDIR"/ 2>/dev/null
+            [ "$_was_running" = 1 ] && "$CRASHDIR"/start.sh start >/dev/null 2>&1
+            rm -rf "$_upg_stage" "$_upg_bak" "$TMPDIR"/ShellCrash.tar.gz
+            task_logger "$TASK_CMD_SCRIPT_UNZIP_FAIL"
+            return 1
         fi
     fi
 }
@@ -158,8 +178,16 @@ case "$1" in
         task_name=$(cat "$CRASHDIR"/task/task_${i18n}.list "$TASKCFGDIR"/task.user 2>/dev/null | awk -F '#' -v id="$1" '$1 == id {print $3; exit}')
         [ -z "$task_command" ] && exit 1
         #task_logger "任务$task_name 开始执行"
-        eval "$task_command" && task_res="$TASK_CMD_RES_OK" || task_res="$TASK_CMD_RES_FAIL"
+        if eval "$task_command"; then
+            _task_rc=0
+            task_res="$TASK_CMD_RES_OK"
+        else
+            _task_rc=$?
+            [ "$_task_rc" -eq 0 ] && _task_rc=1
+            task_res="$TASK_CMD_RES_FAIL"
+        fi
         task_logger "$TASK_CMD_EXEC_PREFIX${2:-$task_name}$TASK_CMD_EXEC_MID$task_res"
+        exit "$_task_rc"
     ;;
     update_core|update_scripts|update_mmdb|reset_firewall|ntp|web_save_auto|update_config|hotupdate)
         "$1"

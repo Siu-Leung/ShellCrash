@@ -31,15 +31,15 @@
 
 ## 核心特性
 
-- **全链路自主分发（零第三方下载依赖）**：彻底移除第三方中转源、在线订阅转换站、公共推送机器人、外部在线面板与上游 Docker 镜像依赖。安装与更新统一从 `Siu-Leung/ShellCrash` 拉取（脚本走 `dev`，内核/面板/规则/GeoData 走 `update`），14 份内置规则模板与 6 个 Web 面板下载源全部指向本仓库 `@update`。
-- **零外泄本地订阅拉取与转换**：订阅链接只直连你自己的原始订阅源，在本机使用纯 POSIX `sh`/`awk`/`base64` 自动识别并处理 UTF-8 BOM、流式 Base64 解码、明文 URI 列表（`ss`/`ssr`/`vmess`/`vless`/`trojan`/`hy2`/`tuic`/`anytls`/`wireguard` 等）、Clash YAML 与 Sing-Box JSON，经本地正则过滤后套用本仓库规则模板生成纯本地 `type: file` / `type: local` 配置。
+- **运行时全链路自有分发**：彻底移除第三方中转源、在线订阅转换站、公共推送机器人、外部在线面板与上游 Docker 镜像依赖。运行时安装、脚本更新（`dev` 分支）以及内核、规则集、面板、GeoData（`update` 分支）均由本仓库直接分发；上游项目（MetaCubeX、SagerNet、reF1nd、DustinWin、Zephyruso、Alpine/s6 等）仅作为 GitHub Actions 构建时的源码与静态资源取材来源。
+- **零外泄本地订阅拉取与转换**：订阅链接只直连你自己的原始订阅源，在本机使用纯 POSIX `sh`/`awk`/`base64` 自动识别并处理 UTF-8 BOM、流式 Base64 解码、明文 URI 列表（`ss`/`ssr`/`vmess`/`vless`/`trojan`/`hy2`/`tuic`/`anytls`/`wireguard` 等）、Clash YAML 与 Sing-Box JSON，经暂存校验后原子切换本地 `type: file` / `type: local` 配置（单源临时失败自动保留上次有效缓存）。
 - **默认安全边界（Fail-Closed）**：
   - 安装脚本、下载库、内核配置、本地订阅转换、Telegram Bot 与 CI 流水线默认强制开启严格 TLS 证书校验（`skip_cert=OFF`，仅显式 `skip_cert=ON` 才放行）。
   - 纯净/本机模式（`firewall_area=4` 且未开启公网访问）下，Clash DNS / 控制面板及 Sing-Box 全部 4 个入站均默认收敛至 `127.0.0.1`；公网防火墙同时拦截代理端口、面板端口、DNS 端口与透明代理端口。
-  - 配置写入采用 POSIX 单引号防注入函数 `setconfig_quote`，消除间接变量 `eval`、`awk` 拼接注入与 `start.sh` / `task_cmd.sh` 通配符任意命令执行。
-- **自建 Telegram Bot 安全控制**：仅直连官方 `api.telegram.org`，强制校验 `TG_CHATID` 为合法数字（支持负数群组 ID）与非空 `TG_TOKEN`；轮询固定 `limit=1` 并严格提取消息头 `chat.id` 杜绝正文伪造绕过；配置恢复压缩包内置 Tar-Slip 与符号链接/硬链接拦截。
+  - 远端 `bin/version` 清单采用白名单纯数据解析（禁止 `source` 执行）；脚本与内核升级均采用暂存校验 + 失败自动回滚；配置写入使用 `setconfig_quote`，消除间接 `eval`、`awk` 注入与通配符任意命令执行。
+- **自建 Telegram Bot 严格鉴权**：仅直连官方 `api.telegram.org`，默认仅私聊生效（同时核验 `chat.id` 与 `from.id`）；群组模式（负数 `TG_CHATID`）必须显式配置 `TG_ADMIN_IDS` 管理员用户白名单方可控制，杜绝群内普通成员越权；配置恢复压缩包内置 Tar-Slip 与符号链接/硬链接拦截。
 - **多内核与全场景 Linux 支持**：支持 Mihomo（Meta）、Sing-Box、Sing-BoxR 内核切换；兼容 Debian/Ubuntu/CentOS/Alpine/Arch 等标准 Linux、OpenWrt、Padavan、华硕/梅林及自建 Docker 容器。
-- **自主供应链构建**：内置最小权限 GitHub Actions 工作流（带 `update` 分支并发锁、rebase 重试与正确的 jsDelivr 缓存刷新），可随时从 `MetaCubeX/mihomo`、`SagerNet/sing-box`、`reF1nd/sing-box` 官方源码交叉编译全架构内核并同步最新规则集/面板/GeoData。
+- **自动化回归 CI 与自主构建**：内置最小权限 GitHub Actions 工作流——`ci.yml` 在每次推送 `dev` 时自动校验 POSIX `sh` / BusyBox `ash` 语法、运行全套离线回归测试并校验 `ShellCrash.tar.gz` 字节一致性；`core_easy_update` / `core_auto_update` / `bin_update` 自动构建并附带 `bin/SHA256SUMS` 与双分支 CDN 缓存刷新。
 
 ## 安装指南
 

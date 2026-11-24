@@ -68,12 +68,16 @@ get_core_config() { #下载或本地转换内核配置文件（零第三方转�
             . "$CRASHDIR"/starts/clash_config_check.sh
         fi
         check_config || return 1
-        #如果不同则备份并替换文件
+        #如果不同则备份并替换文件（确保目录存在且仅替换成功后提示成功）
+        mkdir -p "$(dirname "$core_config")"
         if [ -s "$core_config" ]; then
-            compare "$core_config_new" "$core_config"
-            [ "$?" = 0 ] || mv -f "$core_config" "$core_config".bak && mv -f "$core_config_new" "$core_config"
+            if compare "$core_config_new" "$core_config"; then
+                rm -f "$core_config_new"
+            else
+                cp -f "$core_config" "$core_config".bak && mv -f "$core_config_new" "$core_config" || return 1
+            fi
         else
-            mv -f "$core_config_new" "$core_config"
+            mv -f "$core_config_new" "$core_config" || return 1
         fi
         echo -e "\033[32m已成功获取配置文件！\033[0m"
     fi

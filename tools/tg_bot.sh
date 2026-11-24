@@ -133,6 +133,34 @@ extract_chat_id() {
 	fi
 }
 
+extract_from_id() {
+	if command -v jq >/dev/null 2>&1; then
+		printf '%s' "$1" | jq -r '.result[0] | (.callback_query.from.id // .message.from.id // empty)' 2>/dev/null
+	else
+		printf '%s' "$1" | grep -oE '"from":[[:space:]]*\{[[:space:]]*"id":[[:space:]]*[0-9]+' | head -n 1 | grep -oE '[0-9]+$'
+	fi
+}
+
+is_authorized_event() {
+	_ev_chat=$(extract_chat_id "$1")
+	_ev_from=$(extract_from_id "$1")
+	[ -n "$TGBOT_CHATID" ] && [ "$_ev_chat" = "$TGBOT_CHATID" ] || return 1
+	case "$TGBOT_CHATID" in
+		-*)
+			_admins="${TGBOT_ADMIN_IDS:-$TG_ADMIN_IDS}"
+			[ -n "$_admins" ] && [ -n "$_ev_from" ] || return 1
+			case ",$(printf '%s' "$_admins" | tr ' ;' ',,')," in
+				*",${_ev_from},"*) return 0 ;;
+				*) return 1 ;;
+			esac
+			;;
+		*)
+			[ -z "$_ev_from" ] || [ "$_ev_from" = "$TGBOT_CHATID" ] || return 1
+			return 0
+			;;
+	esac
+}
+
 ### --- 轮询主进程 --- ###
 polling(){
 	case "$TGBOT_CHATID" in
@@ -153,9 +181,8 @@ polling(){
 		esac
 		OFFSET=$((OFFSET + 1))
 
-		### --- 严格校验 ChatID（杜绝未授权控制） --- ###
-		CHATID=$(extract_chat_id "$UPDATES")
-		[ -n "$TGBOT_CHATID" ] && [ "$CHATID" = "$TGBOT_CHATID" ] || continue
+		### --- 严格校验 ChatID 与操作者 from.id（杜绝群成员越权控制） --- ###
+		is_authorized_event "$UPDATES" || continue
 
 		### --- 处理按钮事件 --- ###
 		CALLBACK=$(echo "$UPDATES" | grep -o '"data":"[^"]*"' | head -n1 | sed 's/.*:"//;s/"$//')

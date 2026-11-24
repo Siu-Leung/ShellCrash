@@ -1,0 +1,58 @@
+name: Security & Regression CI
+
+on:
+  push:
+    branches:
+      - dev
+  pull_request:
+    branches:
+      - dev
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  shell-regression:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+
+      - name: Install BusyBox & ripgrep
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq busybox ripgrep
+
+      - name: Syntax check (POSIX sh & BusyBox ash)
+        run: |
+          set -eu
+          for f in install.sh install_en.sh sync_pkg.sh tools/*.sh $(find scripts -name '*.sh' | sort); do
+            sh -n "$f"
+            busybox sh -n "$f"
+          done
+          echo "All shell scripts passed both sh -n and busybox sh -n."
+
+      - name: Run full offline security & logic test suite
+        run: |
+          set -eu
+          for t in tests/test_*.sh tests/clash_geodata.sh; do
+            echo "=== Running $t ==="
+            sh "$t"
+          done
+
+      - name: Verify ShellCrash.tar.gz packaging parity
+        run: |
+          set -eu
+          TMP=$(mktemp -d)
+          trap 'rm -rf "$TMP"' EXIT
+          tar -xzf ShellCrash.tar.gz -C "$TMP"
+          # Packaged scripts must be byte-identical to scripts/ source tree
+          for f in $(find scripts -type f ! -name 'README.md' | sort); do
+            rel="${f#scripts/}"
+            cmp -s "$f" "$TMP/$rel" || { echo "Out of sync in ShellCrash.tar.gz: $rel" >&2; exit 1; }
+          done
+          cmp -s version "$TMP/version" || { echo "Out of sync in ShellCrash.tar.gz: version" >&2; exit 1; }
+          echo "ShellCrash.tar.gz is 100% in sync with scripts/ and version."

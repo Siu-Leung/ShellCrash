@@ -6,7 +6,7 @@ on:
     workflow_dispatch:
 
 concurrency:
-  group: shellcrash-update-branch
+  group: shellcrash-core-auto
   cancel-in-progress: false
 
 jobs:

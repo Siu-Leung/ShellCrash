@@ -34,4 +34,5 @@ check_config() { #检查singbox配置文件
     }
     #清理多余逗号
     sed -i 's/,\+/,/g; s/\[,/\[/g; s/,]/]/g' "$core_config_new"
+    return 0
 }

@@ -31,15 +31,15 @@ This project is an independently maintained, zero-trust hardened edition of Shel
 
 ## Key Features
 
-- **100% Self-Hosted Distribution**: Removed all third-party download mirrors, online subconverter relays, public Telegram bots, external web panels, and upstream Docker images. Scripts update from `dev`, while cores, dashboards, GeoData, and all 14 built-in rule templates pull exclusively from `Siu-Leung/ShellCrash@update`.
-- **Zero-Leak Local Subscription Fetch & Convert**: Subscriptions are fetched directly from your original URLs and converted locally using pure POSIX `sh`/`awk`/`base64` (UTF-8 BOM stripping, streaming Base64 decode, plaintext URIs, Clash YAML, and Sing-Box JSON), producing pure local `type: file` / `type: local` provider configs with regex filtering.
+- **Self-Hosted Runtime Distribution**: Removed third-party relay mirrors, online subconverter backends, public Telegram bots, external web panels, and upstream Docker images. At runtime, scripts update from `dev`, while cores, dashboards, GeoData, and all 14 rule templates are served directly from `Siu-Leung/ShellCrash@update` (upstream projects such as MetaCubeX, SagerNet, reF1nd, DustinWin, Zephyruso, and Alpine/s6 are used strictly as CI build-time inputs).
+- **Zero-Leak Local Subscription Fetch & Convert**: Fetches subscriptions directly from your original URLs and converts them locally using pure POSIX `sh`/`awk`/`base64` (UTF-8 BOM stripping, streaming Base64 decode, plaintext URIs, Clash YAML, and Sing-Box JSON), with staged verification, atomic provider commit, and cached fallback on transient source failures.
 - **Fail-Closed Secure Defaults**:
   - Strict TLS certificate verification (`skip_cert=OFF`) is enforced by default across the installer, HTTP libraries, core config modifiers, local converter, Telegram bot, and CI workflows.
   - Pure/Local mode (`firewall_area=4` without `public_support=ON`) binds Clash DNS, web controller, and all 4 Sing-Box inbounds strictly to `127.0.0.1`; WAN firewall rules reject external access to proxy, panel, DNS, and transparent-proxy ports.
-  - Injection-safe config persistence via POSIX single-quoted `setconfig_quote`, removal of indirect `eval` and `awk` injection, and strict action whitelists in `start.sh` and `task_cmd.sh`.
-- **Hardened Self-Hosted Telegram Bot**: Connects strictly to `api.telegram.org` with your own bot token; enforces numeric `TG_CHATID` (including negative group IDs), `limit=1` polling with non-spoofable `chat.id` extraction, and Tar-Slip / symlink protection on uploaded config backups.
+  - Remote `bin/version` manifests are parsed strictly as whitelisted data (never sourced); script and core upgrades use staged validation with automatic rollback; config writes use `setconfig_quote` with indirect `eval`, `awk` injection, and wildcard command execution eliminated.
+- **Hardened Self-Hosted Telegram Bot**: Connects strictly to `api.telegram.org`; private chats verify both `chat.id` and `from.id`, while negative group chats require an explicit `TG_ADMIN_IDS` sender allowlist (blocking unauthorized group members); uploaded backup archives are guarded against Tar-Slip and symlinks/hardlinks.
 - **Broad Linux Compatibility**: Supports Mihomo (Meta), Sing-Box, and Sing-BoxR on Debian, Ubuntu, CentOS, Alpine, Arch, OpenWrt, Padavan, ASUS/Merlin, and self-built Docker containers.
-- **Self-Hosted Binary Supply Chain**: Least-privilege GitHub Actions workflows (with concurrency locks, rebase-retry push, and fixed jsDelivr cache purging) compile cores from upstream `MetaCubeX/mihomo`, `SagerNet/sing-box`, and `reF1nd/sing-box` and publish refreshed rulesets, dashboards, and GeoData to `update`.
+- **Automated Regression CI & Supply Chain**: Least-privilege GitHub Actions workflows run automated POSIX `sh` / BusyBox `ash` syntax checks, all offline regression tests, and `ShellCrash.tar.gz` byte-parity checks on every `dev` push (`ci.yml`), while `core_easy_update` / `core_auto_update` / `bin_update` publish verified binaries, `bin/SHA256SUMS`, and refreshed `@dev`/`@update` CDN caches.
 
 ## Installation
 

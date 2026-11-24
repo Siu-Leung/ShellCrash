@@ -448,10 +448,120 @@ for lf in 2_settings.lang menu.lang; do
     fi
 done
 
+echo '== 12. V3 复核回归（S1/T1/U1/U2/Fake-IP JSON/只读 doctor/CI 门禁）=='
+# 12a. S1: 合法 Mihomo 直链 YAML 在 url_type 为空时 check_config 必须返回 0
+cat >"$TMP/valid_mihomo.yaml" <<'EOF'
+proxies:
+  - {name: HK-1, type: vless, server: 1.2.3.4, port: 443}
+proxy-groups:
+  - name: PROXY
+    type: select
+    proxies: [HK-1]
+rules:
+  - MATCH,PROXY
+EOF
+if TMPDIR="$TMP" core_config_new="$TMP/valid_mihomo.yaml" url_type="" sh -c 'ckcmd(){ command -v "$1" >/dev/null 2>&1; }; logger(){ :; }; . "$1/scripts/starts/clash_config_check.sh"; check_config' _ "$ROOT"; then
+    ok "S1: clash_config_check 对合法 Mihomo 直链(url_type为空)返回 0"
+else
+    bad "S1: clash_config_check 误拒了合法 Mihomo 直链配置"
+fi
+
+# 12b. T1: Telegram 群组操作者 from.id 鉴权
+BOT_T1="$TMP/bot_t1.sh"
+awk '/^extract_chat_id\(\)/,/^}/ { print } /^extract_from_id\(\)/,/^}/ { print } /^is_authorized_event\(\)/,/^}/ { print }' "$ROOT/scripts/menus/bot_tg.sh" >"$BOT_T1"
+PRIV_EV='{"ok":true,"result":[{"update_id":1,"message":{"from":{"id":555},"chat":{"id":555,"type":"private"},"text":"/crash"}}]}'
+GRP_MEMBER='{"ok":true,"result":[{"update_id":2,"message":{"from":{"id":999},"chat":{"id":-100123,"type":"supergroup"},"text":"/crash"}}]}'
+GRP_ADMIN='{"ok":true,"result":[{"update_id":3,"message":{"from":{"id":888},"chat":{"id":-100123,"type":"supergroup"},"text":"/crash"}}]}'
+
+TG_CHATID="555" TG_ADMIN_IDS="" sh -c ". '$BOT_T1'; is_authorized_event \"\$1\"" _ "$PRIV_EV" \
+    && ok "T1: 私聊 chat.id 与 from.id 一致放行" || bad "T1: 私聊合法事件被误拒"
+TG_CHATID="-100123" TG_ADMIN_IDS="" sh -c ". '$BOT_T1'; is_authorized_event \"\$1\"" _ "$GRP_ADMIN" \
+    && bad "T1: 群组未配置 TG_ADMIN_IDS 时应拒绝管理操作" || ok "T1: 群组未配置 TG_ADMIN_IDS 默认拒绝越权"
+TG_CHATID="-100123" TG_ADMIN_IDS="777,888" sh -c ". '$BOT_T1'; is_authorized_event \"\$1\"" _ "$GRP_MEMBER" \
+    && bad "T1: 群组非白名单成员应被拒绝" || ok "T1: 群组非白名单成员(999)被拦截"
+TG_CHATID="-100123" TG_ADMIN_IDS="777,888" sh -c ". '$BOT_T1'; is_authorized_event \"\$1\"" _ "$GRP_ADMIN" \
+    && ok "T1: 群组白名单管理员(888)正常放行" || bad "T1: 群组白名单管理员被误拒"
+
+# 12c. 远端 bin/version 纯数据解析（禁止 source 执行命令）
+VER_PWN="$TMP/ver_pwn"
+cat >"$TMP/evil_version" <<EOF
+meta_v=v1.19.34
+singbox_v=v1.12.0; touch $VER_PWN
+\$(touch ${VER_PWN}_2)
+GeoIP_v=20261124
+EOF
+_lv_res=$(sh -c ". '$ROOT/scripts/libs/set_config.sh'; meta_v=''; singbox_v=''; GeoIP_v=''; load_version_file '$TMP/evil_version'; printf '%s|%s|%s' \"\$meta_v\" \"\$singbox_v\" \"\$GeoIP_v\"")
+if [ "$_lv_res" = "v1.19.34||20261124" ] && [ ! -e "$VER_PWN" ] && [ ! -e "${VER_PWN}_2" ]; then
+    ok "load_version_file 纯数据解析正常且彻底免疫命令注入"
+else
+    bad "load_version_file 解析或防护异常: got='$_lv_res'"
+fi
+
+# 12d. Sing-Box Fake-IP：用完整 public/fake_ip_filter.list 生成真实 JSON 并以 python3 解析校验
+_fp_json=$(sh -c ". '$ROOT/scripts/starts/singbox_modify.sh' >/dev/null 2>&1 || true; sb_convert_domain_rules '$ROOT/public/fake_ip_filter.list'; printf '{\"domain\":[%s],\"domain_suffix\":[%s],\"domain_regex\":[%s]}' \"\$_fp_domain\" \"\$_fp_suffix\" \"\$_fp_regex\"")
+if printf '%s' "$_fp_json" | python3 -c '
+import json, sys
+obj = json.load(sys.stdin)
+assert "music.163.com" in obj["domain"], "missing plain domain"
+assert "lan" in obj["domain_suffix"], "missing suffix"
+assert "^[^.]+$" in obj["domain_regex"], "missing bare-* single-label regex"
+assert ".*" not in obj["domain_regex"], "dangerous catch-all .* present"
+assert not any("*" in x for x in obj["domain_suffix"]), "wildcard leaked into domain_suffix"
+'
+then
+    ok "sb_convert_domain_rules 对完整 fake_ip_filter.list 生成 100% 合法 JSON 且裸 * 不吞噬域名"
+else
+    bad "sb_convert_domain_rules JSON 校验或裸 * 语义失败"
+fi
+
+# 12e. systemd ExecStart 无字面 >/dev/null
+assert_no "$ROOT/scripts/starts/shellcrash.service" 'ExecStart=.*>/dev/null' 'shellcrash.service ExecStart 无字面 >/dev/null'
+assert_no "$ROOT/scripts/start.sh" 'ExecStart=.*>/dev/null' 'start.sh ExecStart 改写无字面 >/dev/null'
+
+# 12f. crash doctor 在缺少配置文件时严格只读（不创建 ShellCrash.cfg / 不执行 init.sh）
+DOC_SB="$TMP/doc_ro"
+mkdir -p "$DOC_SB/libs" "$DOC_SB/configs"
+cp "$ROOT/scripts/menu.sh" "$DOC_SB/"
+cp "$ROOT/scripts/libs/doctor.sh" "$DOC_SB/libs/"
+printf '#!/bin/sh\ntouch "%s/INIT_RAN"\n' "$DOC_SB" >"$DOC_SB/init.sh"
+chmod +x "$DOC_SB/init.sh"
+TMPDIR="$TMP/doc_tmp" sh "$DOC_SB/menu.sh" doctor >/dev/null 2>&1 || true
+if [ ! -e "$DOC_SB/INIT_RAN" ] && [ ! -e "$DOC_SB/configs/ShellCrash.cfg" ]; then
+    ok "crash doctor 在未初始化目录下严格只读（未触发 init.sh）"
+else
+    bad "crash doctor 产生了写入/初始化副作用"
+fi
+
+# 12g. task_cmd.sh 数值任务透传真实失败退出码
+T_SB="$TMP/task_rc_sb"
+mkdir -p "$T_SB/configs/task" "$T_SB/libs" "$T_SB/menus" "$T_SB/lang/chs" "$T_SB/task"
+cp -R "$ROOT/scripts/libs/." "$T_SB/libs/"
+cp -R "$ROOT/scripts/menus/." "$T_SB/menus/"
+cp -R "$ROOT/scripts/lang/chs/." "$T_SB/lang/chs/"
+: >"$T_SB/configs/command.env"
+printf 'i18n=chs\n' >"$T_SB/configs/ShellCrash.cfg"
+printf '901#false#fail_task\n' >"$T_SB/configs/task/task.user"
+if CRASHDIR="$T_SB" TMPDIR="$TMP/task_rc_tmp" sh "$T_SB/menus/task_cmd.sh" 901 >/dev/null 2>&1; then
+    bad "task_cmd.sh 数值任务失败时误返回 0"
+else
+    ok "task_cmd.sh 数值任务正确透传非零失败退出码"
+fi
+
+# 12h. 工作流治理与 R3 核验
+if [ ! -e "$ROOT/.github/workflows/test.yaml" ] && [ ! -e "$ROOT/.github/workflows/release_new_version.yaml" ] && [ ! -e "$ROOT/.github/workflows/docker_readme_push.yaml" ] && [ -f "$ROOT/.github/workflows/ci.yml" ]; then
+    ok "已移除遗留高危/失效工作流并新增 ci.yml 回归门禁"
+else
+    bad "工作流清理或 ci.yml 缺失"
+fi
+assert_yes "$ROOT/.github/workflows/core_easy_update.yaml" 'update_singbox_tar:' 'core_easy_update.yaml 含 singbox tar.gz 构建'
+assert_yes "$ROOT/.github/workflows/bin_update.yml" 'bin/SHA256SUMS' 'bin_update.yml 生成 bin/SHA256SUMS 清单'
+assert_yes "$ROOT/.github/workflows/bin_update.yml" 'ShellCrash@dev/\$\{devf\}' 'bin_update.yml 同步刷新 @dev 脚本包缓存'
+assert_no "$ROOT/scripts/menus/9_upgrade.sh" '"4\) Clash"' '9_upgrade.sh 已移除停更的 Clash 旧内核选项'
+
 echo ''
 if [ "$FAIL" -eq 0 ]; then
-    printf '\033[32mV2 全面安全与逻辑审计回归测试全部通过\033[0m\n'
+    printf '\033[32mV2/V3 全面安全与逻辑审计回归测试全部通过\033[0m\n'
 else
-    printf '\033[31mV2 审计回归测试失败 %d 项\033[0m\n' "$FAIL"
+    printf '\033[31mV2/V3 审计回归测试失败 %d 项\033[0m\n' "$FAIL"
     exit 1
 fi

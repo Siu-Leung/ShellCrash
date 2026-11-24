@@ -194,9 +194,10 @@ local_fetch_one_provider() {
         return 1
     fi
 
-    mkdir -p "$CRASHDIR/providers" "$TMPDIR/local_sub"
+    _out_dir="${LOCAL_SUB_STAGE_DIR:-$CRASHDIR/providers}"
+    mkdir -p "$_out_dir" "$TMPDIR/local_sub"
     _stage_raw="$TMPDIR/local_sub/${_tag}.raw"
-    _dest_prefix="$CRASHDIR/providers/${_tag}"
+    _dest_prefix="${_out_dir}/${_tag}"
 
     case "$_src" in
         ./providers/*)
@@ -225,6 +226,30 @@ local_fetch_one_provider() {
         return 0
     fi
     rm -f "$_stage_raw"
+    return 1
+}
+
+# 将暂存目录中的已校验 provider 原子提交到 $CRASHDIR/providers 并同步 $BINDIR/providers
+local_commit_staged_providers() {
+    [ -d "$LOCAL_SUB_STAGE_DIR" ] || return 0
+    mkdir -p "$CRASHDIR/providers"
+    for _sf in "$LOCAL_SUB_STAGE_DIR"/*; do
+        [ -f "$_sf" ] && mv -f "$_sf" "$CRASHDIR/providers/${_sf##*/}"
+    done
+    local_sync_bindir_providers
+}
+
+# 单个源临时拉取失败时，如本地已有上次有效缓存则保留并告警，避免静默丢节点
+local_fallback_cached_provider() {
+    _fb_tag=$1
+    LOCAL_SUB_REL_PATH=""
+    for _ext in yaml txt; do
+        if [ -s "$CRASHDIR/providers/${_fb_tag}.${_ext}" ]; then
+            cp -f "$CRASHDIR/providers/${_fb_tag}.${_ext}" "$LOCAL_SUB_STAGE_DIR/${_fb_tag}.${_ext}"
+            LOCAL_SUB_REL_PATH="./providers/${_fb_tag}.${_ext}"
+            return 0
+        fi
+    done
     return 1
 }
 
@@ -294,6 +319,10 @@ EOF
         _ok_count=$((_ok_count + 1))
     }
 
+    LOCAL_SUB_STAGE_DIR="$TMPDIR/local_sub/stage_providers"
+    rm -rf "$LOCAL_SUB_STAGE_DIR"
+    mkdir -p "$LOCAL_SUB_STAGE_DIR"
+
     if [ -n "$1" ]; then
         _t_name=$1
         _t_link=$2
@@ -320,17 +349,20 @@ EOF
                 [ -z "$_p_ua" ] && _p_ua="${user_agent:-clash.meta}"
                 if local_fetch_one_provider "$_p_name" "$_p_link" "$_p_ua" "$_p_inc" "$_p_exc"; then
                     _append_clash_file_provider "$_p_name" "$LOCAL_SUB_REL_PATH" "${_p_int:-3}" "$_p_exc" "$_p_inc"
+                elif local_fallback_cached_provider "$_p_name"; then
+                    logger "本地拉取订阅失败，已保留上次有效缓存：$_p_name" 33
+                    _append_clash_file_provider "$_p_name" "$LOCAL_SUB_REL_PATH" "${_p_int:-3}" "$_p_exc" "$_p_inc"
                 else
                     logger "本地拉取或解析订阅失败，已跳过：$_p_name" 33
                 fi
             done <"$CRASHDIR/configs/providers.cfg"
         fi
         if [ -s "$CRASHDIR/configs/providers_uri.cfg" ]; then
-            mkdir -p "$CRASHDIR/providers" "$TMPDIR/local_sub"
+            mkdir -p "$TMPDIR/local_sub"
             awk 'NF>=2 && $1 !~ /^#/ { print ($1=="vmess" || index($2,"#")>0 ? $2 : $2 "#" $1) }' "$CRASHDIR/configs/providers_uri.cfg" >"$TMPDIR/local_sub/uri_group.raw"
-            local_filter_uri_file "$TMPDIR/local_sub/uri_group.raw" "$CRASHDIR/providers/uri_group" "$include" "$exclude"
+            local_filter_uri_file "$TMPDIR/local_sub/uri_group.raw" "$LOCAL_SUB_STAGE_DIR/uri_group" "$include" "$exclude"
             rm -f "$TMPDIR/local_sub/uri_group.raw"
-            if [ -s "$CRASHDIR/providers/uri_group" ]; then
+            if [ -s "$LOCAL_SUB_STAGE_DIR/uri_group" ]; then
                 _append_clash_file_provider "Uri_group" "./providers/uri_group" "3" "$exclude" "$include"
             fi
         fi
@@ -339,27 +371,40 @@ EOF
     if [ "$_ok_count" -eq 0 ]; then
         logger "未能成功拉取或解析任何有效订阅节点！" 31
         rm -rf "$TMPDIR/providers" "$TMPDIR/local_sub"
+        LOCAL_SUB_STAGE_DIR=""
         return 1
     fi
 
     local_replace_placeholder "$TMPDIR/providers/proxy-groups.yaml" "{providers_tags}" "$_tags"
     cat "$TMPDIR/providers/providers.yaml" "$TMPDIR/providers/proxy-groups.yaml" "$TMPDIR/providers/rules.yaml" >"$TMPDIR/config.yaml"
-    rm -rf "$TMPDIR/providers" "$TMPDIR/local_sub"
-    local_sync_bindir_providers
 
-    # 若内核存在则校验生成的配置；离线/无内核测试环境允许跳过
+    # 若内核存在则基于暂存目录先做完整配置校验，校验失败不覆盖既有 providers 缓存与 config.yaml
     if [ "${LOCAL_SUB_SKIP_CORE_TEST:-0}" != "1" ]; then
         . "$CRASHDIR"/starts/check_core.sh && check_core
-        if ! "$TMPDIR"/CrashCore -t -d "$BINDIR" -f "$TMPDIR/config.yaml"; then
-            logger "本地转换生成的 Clash 配置文件校验失败！" 31
-            rm -f "$TMPDIR/config.yaml"
+        _verify_dir="$TMPDIR/local_sub/verify_dir"
+        rm -rf "$_verify_dir"
+        mkdir -p "$_verify_dir"
+        for _bf in "$BINDIR"/*; do
+            [ -e "$_bf" ] || continue
+            [ "${_bf##*/}" = "providers" ] && continue
+            ln -sf "$_bf" "$_verify_dir/${_bf##*/}" 2>/dev/null || true
+        done
+        ln -sf "$LOCAL_SUB_STAGE_DIR" "$_verify_dir/providers"
+        if ! "$TMPDIR"/CrashCore -t -d "$_verify_dir" -f "$TMPDIR/config.yaml"; then
+            logger "本地转换生成的 Clash 配置文件校验失败！已保留原有配置与订阅缓存。" 31
+            rm -rf "$TMPDIR/config.yaml" "$TMPDIR/providers" "$TMPDIR/local_sub"
+            LOCAL_SUB_STAGE_DIR=""
             return 1
         fi
     fi
 
+    # 校验通过后再原子提交暂存的 providers 缓存与主配置文件
+    local_commit_staged_providers
     mkdir -p "$CRASHDIR/yamls"
     [ -s "$CRASHDIR/yamls/config.yaml" ] && cp -f "$CRASHDIR/yamls/config.yaml" "$CRASHDIR/yamls/config.yaml.bak"
     mv -f "$TMPDIR/config.yaml" "$CRASHDIR/yamls/config.yaml"
+    rm -rf "$TMPDIR/providers" "$TMPDIR/local_sub"
+    LOCAL_SUB_STAGE_DIR=""
     return 0
 }
 
@@ -443,6 +488,10 @@ EOF
         _ok_count=$((_ok_count + 1))
     }
 
+    LOCAL_SUB_STAGE_DIR="$TMPDIR/local_sub/stage_providers"
+    rm -rf "$LOCAL_SUB_STAGE_DIR"
+    mkdir -p "$LOCAL_SUB_STAGE_DIR"
+
     if [ -n "$1" ]; then
         _t_name=$1
         _t_link=$2
@@ -469,17 +518,20 @@ EOF
                 [ -z "$_p_ua" ] && _p_ua="${user_agent:-clash.meta}"
                 if local_fetch_one_provider "$_p_name" "$_p_link" "$_p_ua" "$_p_inc" "$_p_exc"; then
                     _append_sb_local_provider "$_p_name" "$LOCAL_SUB_REL_PATH" "${_p_int:-3}" "$_p_exc" "$_p_inc"
+                elif local_fallback_cached_provider "$_p_name"; then
+                    logger "本地拉取订阅失败，已保留上次有效缓存：$_p_name" 33
+                    _append_sb_local_provider "$_p_name" "$LOCAL_SUB_REL_PATH" "${_p_int:-3}" "$_p_exc" "$_p_inc"
                 else
                     logger "本地拉取或解析订阅失败，已跳过：$_p_name" 33
                 fi
             done <"$CRASHDIR/configs/providers.cfg"
         fi
         if [ -s "$CRASHDIR/configs/providers_uri.cfg" ]; then
-            mkdir -p "$CRASHDIR/providers" "$TMPDIR/local_sub"
+            mkdir -p "$TMPDIR/local_sub"
             awk 'NF>=2 && $1 !~ /^#/ { print ($1=="vmess" || index($2,"#")>0 ? $2 : $2 "#" $1) }' "$CRASHDIR/configs/providers_uri.cfg" >"$TMPDIR/local_sub/uri_group.raw"
-            local_filter_uri_file "$TMPDIR/local_sub/uri_group.raw" "$CRASHDIR/providers/uri_group" "$include" "$exclude"
+            local_filter_uri_file "$TMPDIR/local_sub/uri_group.raw" "$LOCAL_SUB_STAGE_DIR/uri_group" "$include" "$exclude"
             rm -f "$TMPDIR/local_sub/uri_group.raw"
-            if [ -s "$CRASHDIR/providers/uri_group" ]; then
+            if [ -s "$LOCAL_SUB_STAGE_DIR/uri_group" ]; then
                 _append_sb_local_provider "Uri_group" "./providers/uri_group" "3" "$exclude" "$include"
             fi
         fi
@@ -488,6 +540,7 @@ EOF
     if [ "$_ok_count" -eq 0 ]; then
         logger "未能成功拉取或解析任何有效订阅节点！" 31
         rm -rf "$TMPDIR/providers" "$TMPDIR/local_sub"
+        LOCAL_SUB_STAGE_DIR=""
         return 1
     fi
 
@@ -497,21 +550,25 @@ EOF
     local_replace_placeholder "$TMPDIR/providers/outbounds.json" "{providers_tags}" "$_tags"
     local_replace_placeholder "$TMPDIR/providers/outbounds.json" "\"providers_tags\"" "$_tags"
     rm -f "$TMPDIR/provider_temp_file"
-    local_sync_bindir_providers
 
     if [ "${LOCAL_SUB_SKIP_CORE_TEST:-0}" != "1" ]; then
         . "$CRASHDIR"/starts/check_core.sh && check_core
         if ! "$TMPDIR"/CrashCore merge "$TMPDIR/config.json" -C "$TMPDIR/providers"; then
-            logger "本地转换生成的 Sing-Box 配置文件合并失败！" 31
+            logger "本地转换生成的 Sing-Box 配置文件合并失败！已保留原有配置与订阅缓存。" 31
             rm -rf "$TMPDIR/providers" "$TMPDIR/local_sub"
+            LOCAL_SUB_STAGE_DIR=""
             return 1
         fi
+        local_commit_staged_providers
         mkdir -p "$CRASHDIR/jsons"
         [ -s "$CRASHDIR/jsons/config.json" ] && cp -f "$CRASHDIR/jsons/config.json" "$CRASHDIR/jsons/config.json.bak"
         mv -f "$TMPDIR/config.json" "$CRASHDIR/jsons/config.json"
+    else
+        local_commit_staged_providers
     fi
 
     rm -rf "$TMPDIR/providers" "$TMPDIR/local_sub"
+    LOCAL_SUB_STAGE_DIR=""
     return 0
 }
 

@@ -274,6 +274,37 @@ extract_chat_id() {
     fi
 }
 
+# 安全加固：提取同一更新的操作者 from.id（防止群组模式下普通群成员凭同一 chat.id 越权执行管理/备份/上传）
+extract_from_id() {
+    if command -v jq >/dev/null 2>&1; then
+        printf '%s' "$1" | jq -r '.result[0] | (.callback_query.from.id // .message.from.id // empty)' 2>/dev/null
+    else
+        printf '%s' "$1" | grep -oE '"from":[[:space:]]*\{[[:space:]]*"id":[[:space:]]*[0-9]+' | head -n 1 | grep -oE '[0-9]+$'
+    fi
+}
+
+# 安全加固：私聊要求 chat.id 与 from.id 均匹配 TG_CHATID；群组(负数 chat.id)必须显式配置 TG_ADMIN_IDS 白名单并命中 from.id
+is_authorized_event() {
+    _ev_chat=$(extract_chat_id "$1")
+    _ev_from=$(extract_from_id "$1")
+    [ -n "$TG_CHATID" ] && [ "$_ev_chat" = "$TG_CHATID" ] || return 1
+    case "$TG_CHATID" in
+        -*)
+            # 群组模式：未配置 TG_ADMIN_IDS 时默认拒绝任何群组管理动作，杜绝全员越权
+            [ -n "$TG_ADMIN_IDS" ] && [ -n "$_ev_from" ] || return 1
+            case ",$(printf '%s' "$TG_ADMIN_IDS" | tr ' ;' ',,')," in
+                *",${_ev_from},"*) return 0 ;;
+                *) return 1 ;;
+            esac
+            ;;
+        *)
+            # 私聊模式：存在 from.id 时必须与 TG_CHATID 一致
+            [ -z "$_ev_from" ] || [ "$_ev_from" = "$TG_CHATID" ] || return 1
+            return 0
+            ;;
+    esac
+}
+
 ### --- 轮询主进程 --- ###
 polling(){
     while true; do
@@ -291,9 +322,8 @@ polling(){
         esac
         OFFSET=$((OFFSET + 1))
         
-        ### --- 严格校验 ChatID --- ###
-        CHATID=$(extract_chat_id "$UPDATES")
-        [ -n "$TG_CHATID" ] && [ "$CHATID" = "$TG_CHATID" ] || continue
+        ### --- 严格校验 ChatID 与操作者 from.id --- ###
+        is_authorized_event "$UPDATES" || continue
         
         ### --- 处理按钮事件 --- ###
         CALLBACK=$(echo "$UPDATES" | grep -o '"data":"[^"]*"' | head -n1 | sed 's/.*:"//;s/"$//')

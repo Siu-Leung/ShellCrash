@@ -58,7 +58,7 @@ start)
     elif is_root_user && grep -q 'systemd' /proc/1/comm; then
         FragmentPath=$(systemctl show -p FragmentPath shellcrash | sed 's/FragmentPath=//')
         [ -f "$FragmentPath" ] && {
-            sed -i "s#^ExecStart=.*#ExecStart=$COMMAND >/dev/null#" "$FragmentPath"
+            sed -i "s#^ExecStart=.*#ExecStart=$COMMAND#" "$FragmentPath"
             systemctl daemon-reload
         }
         systemctl start shellcrash.service || . "$CRASHDIR"/starts/start_error.sh

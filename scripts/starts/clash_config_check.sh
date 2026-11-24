@@ -41,4 +41,5 @@ check_config() { #检查clash配置文件
         done <"$TMPDIR"/clash_proxies
         rm -rf "$TMPDIR"/clash_proxies
     }
+    return 0
 }

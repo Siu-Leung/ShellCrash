@@ -30,3 +30,53 @@ setconfig_quote() {
         setconfig "$1" "$(quote_cfg_val "$2")" "$3"
     fi
 }
+
+# 安全加固：按纯数据解析远端下载的 bin/version 清单（严禁直接 source 执行远端脚本）
+# 仅放行白名单版本键名与安全字符集 [A-Za-z0-9._+-]
+load_version_file() {
+    [ -r "$1" ] || return 1
+    while IFS= read -r _lv_line || [ -n "$_lv_line" ]; do
+        _lv_line=$(printf '%s' "$_lv_line" | tr -d '\r')
+        case "$_lv_line" in
+            '' | \#*) continue ;;
+            *=*)
+                _lv_k=${_lv_line%%=*}
+                _lv_v=${_lv_line#*=}
+                case "$_lv_v" in
+                    *[![:alnum:]._+-]* | '') continue ;;
+                esac
+                case "$_lv_k" in
+                    meta_v)          meta_v="$_lv_v" ;;
+                    singbox_v)       singbox_v="$_lv_v" ;;
+                    singboxr_v)      singboxr_v="$_lv_v" ;;
+                    clash_v)         clash_v="$_lv_v" ;;
+                    GeoIP_v)         GeoIP_v="$_lv_v" ;;
+                    versionsh)       versionsh="$_lv_v" ;;
+                    release_version) release_version="$_lv_v" ;;
+                esac
+                ;;
+        esac
+    done <"$1"
+    return 0
+}
+
+# 安全加固：校验 tar.gz 归档无绝对路径、../ 遍历及符号链接/硬链接/设备节点（防 Tar Slip）
+safe_tar_check() {
+    _stc_entries=$(tar -tzf "$1" 2>/dev/null) || return 1
+    [ -n "$_stc_entries" ] || return 1
+    printf '%s\n' "$_stc_entries" | grep -Eq '(^/|^\.\./|/\.\./|/\.\.$|^\.\.$)' && return 1
+    _stc_listing=$(tar -tvzf "$1" 2>/dev/null) || return 1
+    printf '%s\n' "$_stc_listing" | grep -Eq '^[lhcb]' && return 1
+    return 0
+}
+
+# 安全加固：校验运行临时目录非符号链接并收紧权限
+ensure_safe_tmpdir() {
+    _est_dir="${1:-$TMPDIR}"
+    [ -n "$_est_dir" ] || return 1
+    [ -L "$_est_dir" ] && return 1
+    mkdir -p "$_est_dir" 2>/dev/null || return 1
+    [ ! -L "$_est_dir" ] && [ -d "$_est_dir" ] || return 1
+    chmod 700 "$_est_dir" 2>/dev/null || true
+    return 0
+}

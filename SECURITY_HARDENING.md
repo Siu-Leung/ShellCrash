@@ -35,6 +35,24 @@
    - 修复 `init.sh` 空 `$shtype` 破坏脚本 shebang 与正文、缺 `version` 读取及 `dns_direct_domains.list` 迁移。
    - 修复 `check_geo.sh` 误引号 `"$find_para"` 导致每次启动重复下载 GeoData、`task_cmd.sh` `update_scripts` 无法解析纯文本 `version`、`fw_nftables.sh` `$$vm_ipv4` 笔误、`fw_filter.sh` `add_ip` 误查 `mac` 文件、`singbox_modify.sh` 与 `clash_modify.sh` 认证/密钥转义及 `dns_protect=OFF` 失效、`sb_inbounds.sh` 尾部多余逗号、`local_sub_convert.sh` UTF-8 BOM 剥离与流式 Base64 解码、`2_settings.lang` / `menu.lang` 英文缺失键同步。
 
+## V3 复核与发布门禁加固（对应第三方复核清单）
+
+1. **修复有效 Mihomo 直链订阅误拒（S1）**：`clash_config_check.sh` 与 `singbox_config_check.sh` 函数末尾显式 `return 0`，杜绝未设 `url_type` 时被误判校验失败；`core_config.sh` 修正备份替换判断逻辑，仅在落盘成功后提示成功。
+2. **Telegram 群组操作者鉴权（T1）**：`bot_tg.sh` 与 `tools/tg_bot.sh` 新增 `extract_from_id()` 与 `is_authorized_event()`——私聊模式同时核验 `chat.id` 与 `from.id`，群组模式（负数 `TG_CHATID`）必须显式配置 `TG_ADMIN_IDS` 管理员白名单，否则默认拒绝一切群组管理操作。
+3. **升级事务化与内核回滚（U1 / U2 / 信任边界）**：
+   - `set_config.sh` 新增纯数据解析函数 `load_version_file()`（彻底替代对远端下载 `bin/version` 的直接 `source`）及 `safe_tar_check()`、`ensure_safe_tmpdir()`。
+   - `9_upgrade.sh` 与 `task_cmd.sh` 脚本升级改为“先暂存校验 Tar-Slip 与关键脚本语法 -> 备份现用脚本 -> 切换并校验 -> 失败自动回滚并恢复服务运行态”。
+   - `core_tools.sh` 与 `task_cmd.sh` 内核升级改为先验候选二进制与现用配置、备份旧归档至 `$TMPDIR/core_bak`，启动失败时调用 `core_rollback()` 自动回滚。
+4. **运行态细节修复**：
+   - `shellcrash.service` 与 `start.sh` 移除 systemd `ExecStart` 中会被当字面参数传入的 `>/dev/null`（由 `StandardOutput=null` 接管）。
+   - `singbox_modify.sh` `sb_convert_domain_rules()` 修复裸 `*` 误转为 `.*` 破坏 Fake-IP 的缺陷（改为 `^[^.]+$` 匹配单标签主机名），并统一做合法 JSON 双反斜杠转义及 `+.stun.*.*` 混合通配转换。
+   - `local_sub_convert.sh` 改为暂存目录拉取并校验通过后再原子提交 `$CRASHDIR/providers/`，单源临时拉取失败自动保留上次有效缓存并告警。
+   - `menu.sh` 将 `crash doctor` 提前到 `get_config.sh` 之前执行以确保严格只读；`task_cmd.sh` 数值任务透传真实退出码；`9_upgrade.sh` 移除已下线的 `Clash` 旧内核菜单项。
+5. **发布门禁与 CI 治理（R1 / R2 / R3 / D1）**：
+   - 版本号推进至 `1.9.7-hardened.1`，`bin_update.yml` 同步清理旧 `clash_v=`、生成 `bin/SHA256SUMS` 并同时刷新 `@dev` 与 `@update` 的 jsDelivr 缓存。
+   - 删除含注入风险或失效的 `test.yaml`、`release_new_version.yaml`、`docker_readme_push.yaml`；`core_easy_update.yaml` 补齐 `singbox` 的 `tar.gz` 构建；`update_singbox_core.yaml` 按实际检出 ref 记录版本；将推送锁下沉至 `push_to_git` 作业级消除嵌套并发死锁风险；`docker.yaml` 在未配置 Docker Hub Secrets 时降级为本地构建校验；新增 `ci.yml` 在每次推送 `dev` 时自动运行 POSIX `sh` / BusyBox `ash` 语法检查、全套离线回归测试与 `ShellCrash.tar.gz` 字节一致性核验。
+   - 明确区分 **CI 构建时取材上游**（MetaCubeX、SagerNet、reF1nd、DustinWin、Zephyruso、Alpine/s6）与 **运行时本仓库分发**（`Siu-Leung/ShellCrash@dev` & `@update`）。
+
 ## 允许的外发通信范围
 
 - **用户原始订阅源**：本地拉取引擎仅直连用户自己配置的订阅 URL，绝不发送给任何第三方转换服务。

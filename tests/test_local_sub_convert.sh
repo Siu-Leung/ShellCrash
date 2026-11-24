@@ -178,7 +178,12 @@ if grep -q '127.0.0.1:\$db_port' scripts/starts/clash_modify.sh     && grep -q '
 else
     fail "纯净模式绑定加固缺失"
 fi
-if grep -q 'shellcrash-update-branch' .github/workflows/core_easy_update.yaml     && grep -q 'git pull --rebase origin update' .github/workflows/update_meta_core.yaml     && grep -q 'git pull --rebase origin update' .github/workflows/update_singbox_core.yaml; then
+if grep -q 'shellcrash-core-easy-' .github/workflows/core_easy_update.yaml \
+    && grep -q 'shellcrash-update-push' .github/workflows/bin_update.yml \
+    && grep -q 'shellcrash-update-push' .github/workflows/update_meta_core.yaml \
+    && grep -q 'shellcrash-update-push' .github/workflows/update_singbox_core.yaml \
+    && grep -q 'git pull --rebase origin update' .github/workflows/update_meta_core.yaml \
+    && grep -q 'git pull --rebase origin update' .github/workflows/update_singbox_core.yaml; then
     pass "CI 并发锁与 rebase 防冲突推送已配置"
 else
     fail "CI 并发锁配置不完整"

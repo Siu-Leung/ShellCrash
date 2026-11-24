@@ -72,30 +72,49 @@ parse_singbox_dns() { #dns转换工具
     fi
 }
 
-# 安全加固：把 ShellCrash 的通配符规则文件正确转换为 sing-box 的 domain/domain_suffix/domain_regex 规则。
-# 输入行约定：纯域名 -> domain；*.example.com / +.example.com -> domain_suffix；含内部 * 的 -> domain_regex；
-# '#' 开头或空行忽略。输出三个全局变量：_fp_domain / _fp_suffix / _fp_regex（逗号分隔的 JSON 字符串片段）。
+# 安全加固：把 ShellCrash 的通配符规则文件正确转换为 sing-box 的 domain/domain_suffix/domain_regex 规则（合法 JSON 编码）。
+# 输入行约定：裸 * -> ^[^.]+$（仅匹配单标签局域网主机名，不劫持全域名）；
+# 纯后缀 *.example.com / +.example.com（不含其余 *）-> domain_suffix；
+# 含内部/多段 * 的 -> JSON 双反斜杠转义后的 domain_regex；纯域名 -> domain。
 sb_convert_domain_rules() {
     _fp_domain=''; _fp_suffix=''; _fp_regex=''
     for _fp_file in "$@"; do
         [ -f "$_fp_file" ] || continue
         while IFS= read -r _fp_line || [ -n "$_fp_line" ]; do
-            _fp_line=$(printf '%s' "$_fp_line" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+            _fp_line=$(printf '%s' "$_fp_line" | tr -d '\r' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
             case "$_fp_line" in '' | \#*) continue ;; esac
             case "$_fp_line" in
+                '*')
+                    # 裸 * 仅匹配无点号的局域网单标签主机名，避免 .* 吞噬所有域名导致 Fake-IP 失效
+                    _fp_regex="$_fp_regex\"^[^.]+\$\", "
+                    ;;
                 '*.'* | '+.'*)
-                    # 后缀通配：去掉前缀符号
                     _fp_v=${_fp_line#[*+].}
-                    [ -n "$_fp_v" ] && _fp_suffix="$_fp_suffix\"$_fp_v\", "
+                    case "$_fp_v" in
+                        '') continue ;;
+                        *'*'*)
+                            # 形如 +.stun.*.* / *.*.xboxlive.com 含剩余通配符，转合法 JSON 正则
+                            _fp_re=$(printf '%s' "$_fp_v" | sed 's/\\/\\\\\\\\/g; s/"/\\"/g; s/[.+?^$()|{}]/\\\\&/g; s/\[/\\\\[/g; s/\]/\\\\]/g; s/\*/.*/g')
+                            case "$_fp_line" in
+                                '+.'*) _fp_regex="$_fp_regex\"(^|\\\\.)${_fp_re}\$\", " ;;
+                                *)     _fp_regex="$_fp_regex\"^.*\\\\.${_fp_re}\$\", " ;;
+                            esac
+                            ;;
+                        *)
+                            _fp_v=$(printf '%s' "$_fp_v" | sed 's/\\/\\\\/g; s/"/\\"/g')
+                            _fp_suffix="$_fp_suffix\"$_fp_v\", "
+                            ;;
+                    esac
                     ;;
                 *'*'*)
-                    # 内部通配：转正则，先转义点，再把 * 换成 .*
-                    _fp_v=$(printf '%s' "$_fp_line" | sed 's/\./\\./g; s/\*/.*/g')
-                    [ -n "$_fp_v" ] && _fp_regex="$_fp_regex\"$_fp_v\", "
+                    # 内部通配（如 time.*.com）：转正则并做合法 JSON 双反斜杠转义
+                    _fp_re=$(printf '%s' "$_fp_line" | sed 's/\\/\\\\\\\\/g; s/"/\\"/g; s/[.+?^$()|{}]/\\\\&/g; s/\[/\\\\[/g; s/\]/\\\\]/g; s/\*/.*/g')
+                    [ -n "$_fp_re" ] && _fp_regex="$_fp_regex\"^${_fp_re}\$\", "
                     ;;
                 *)
-                    # 纯域名（含 geosite:xxx / rule-set:xxx 这类保留原样由内核解析）
-                    _fp_domain="$_fp_domain\"$_fp_line\", "
+                    # 纯域名（做 JSON 转义）
+                    _fp_v=$(printf '%s' "$_fp_line" | sed 's/\\/\\\\/g; s/"/\\"/g')
+                    _fp_domain="$_fp_domain\"$_fp_v\", "
                     ;;
             esac
         done <"$_fp_file"

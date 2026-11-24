@@ -8,10 +8,24 @@ CRASHDIR=$(
 
 CFG_PATH="$CRASHDIR"/configs/ShellCrash.cfg
 
+# 安全加固：只读诊断命令 doctor/check/-c 提前分派，绝不触发缺失配置时的 init.sh 副作用
+case "$1" in
+doctor | check | -c)
+    [ -f "$CRASHDIR"/configs/directories.env ] && . "$CRASHDIR"/configs/directories.env >/dev/null 2>&1
+    [ -f "$CRASHDIR"/configs/command.env ] && . "$CRASHDIR"/configs/command.env >/dev/null 2>&1
+    [ -f "$CFG_PATH" ] && . "$CFG_PATH" >/dev/null 2>&1
+    [ -z "$BINDIR" ] && BINDIR="$CRASHDIR"
+    [ -z "$TMPDIR" ] && TMPDIR="/tmp/ShellCrash"
+    . "$CRASHDIR"/libs/doctor.sh && run_doctor
+    exit $?
+    ;;
+esac
+
 # 加载执行目录，失败则初始化
 . "$CRASHDIR"/libs/get_config.sh
 [ -z "$BINDIR" -o -z "$TMPDIR" -o -z "$COMMAND" ] && . "$CRASHDIR"/init.sh >/dev/null 2>&1
-[ ! -d "$TMPDIR" ] && mkdir -p "$TMPDIR"
+[ -L "$TMPDIR" ] && { echo "Refusing symlink TMPDIR: $TMPDIR" >&2; exit 1; }
+[ ! -d "$TMPDIR" ] && mkdir -p "$TMPDIR" && chmod 700 "$TMPDIR" 2>/dev/null
 
 # 通用工具
 . "$CRASHDIR"/libs/set_config.sh

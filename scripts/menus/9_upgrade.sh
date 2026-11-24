@@ -119,7 +119,7 @@ checkupdate() {
         if get_bin "$TMPDIR"/version_new bin/version echooff; then
             content_line "\033[32m$UPG_CHECK_OK\033[0m"
             separator_line "="
-            . "$TMPDIR"/version_new 2>/dev/null
+            load_version_file "$TMPDIR"/version_new
         else
             content_line "\033[31m$UPG_CHECK_FAIL\033[0m"
             separator_line "="
@@ -139,7 +139,7 @@ checkupdate() {
     rm -rf "$TMPDIR"/version_new
 }
 
-# 更新脚本
+# 更新脚本（安全加固：先暂存校验 Tar-Slip 与关键脚本语法，再备份旧脚本切换并在失败时回滚）
 getscripts() {
     line_break
     separator_line "="
@@ -147,25 +147,48 @@ getscripts() {
 
     if [ "$?" != "0" ]; then
         content_line "\033[33m$UPG_DOWNLOAD_FAIL\033[0m"
+        rm -f "$TMPDIR"/ShellCrash.tar.gz
         error_down
-    else
-        "$CRASHDIR"/start.sh stop 2>/dev/null
-        # 解压
-        content_line "$UPG_EXTRACTING"
-        mkdir -p "$CRASHDIR" >/dev/null
-        tar -zxf "$TMPDIR/ShellCrash.tar.gz" ${tar_para} -C "$CRASHDIR"/
-        if [ $? -ne 0 ]; then
-            content_line "\033[33m$UPG_EXTRACT_FAIL\033[0m"
-            error_down
-        else
-            . "$CRASHDIR"/init.sh >/dev/null
-            echo "$release_type" | grep -qE '^[0-9]' && setconfig userguide #回退时重新新手引导
-            content_line "\033[32m$UPG_SCRIPT_OK\033[0m"
-            separator_line "="
-        fi
+        return 1
     fi
-    rm -rf "$TMPDIR"/ShellCrash.tar.gz
-    exit
+    _upg_stage="$TMPDIR/upg_stage.$$"
+    _upg_bak="$TMPDIR/upg_bak.$$"
+    rm -rf "$_upg_stage" "$_upg_bak"
+    mkdir -p "$_upg_stage" "$_upg_bak"
+    content_line "$UPG_EXTRACTING"
+    if ! safe_tar_check "$TMPDIR/ShellCrash.tar.gz" || \
+       ! tar -zxf "$TMPDIR/ShellCrash.tar.gz" ${tar_para} -C "$_upg_stage" || \
+       [ ! -s "$_upg_stage/start.sh" ] || [ ! -s "$_upg_stage/menu.sh" ] || [ ! -s "$_upg_stage/init.sh" ] || \
+       ! sh -n "$_upg_stage/start.sh" 2>/dev/null || ! sh -n "$_upg_stage/menu.sh" 2>/dev/null || ! sh -n "$_upg_stage/init.sh" 2>/dev/null; then
+        content_line "\033[33m$UPG_EXTRACT_FAIL\033[0m"
+        rm -rf "$_upg_stage" "$_upg_bak" "$TMPDIR"/ShellCrash.tar.gz
+        error_down
+        return 1
+    fi
+    # 备份现有运行脚本（不改动用户 configs/yamls/jsons/providers）
+    for _item in start.sh menu.sh init.sh version libs menus starts lang task; do
+        [ -e "$CRASHDIR/$_item" ] && cp -a "$CRASHDIR/$_item" "$_upg_bak/" 2>/dev/null
+    done
+    _was_running=0
+    [ -n "$(pidof CrashCore 2>/dev/null)" ] && _was_running=1
+    "$CRASHDIR"/start.sh stop 2>/dev/null
+    mkdir -p "$CRASHDIR" >/dev/null
+    if cp -af "$_upg_stage"/. "$CRASHDIR"/ && . "$CRASHDIR"/init.sh >/dev/null; then
+        echo "$release_type" | grep -qE '^[0-9]' && setconfig userguide #回退时重新新手引导
+        [ "$_was_running" = 1 ] && "$CRASHDIR"/start.sh start >/dev/null 2>&1
+        content_line "\033[32m$UPG_SCRIPT_OK\033[0m"
+        separator_line "="
+        rm -rf "$_upg_stage" "$_upg_bak" "$TMPDIR"/ShellCrash.tar.gz
+        exit 0
+    else
+        # 切换或初始化失败：自动回滚旧脚本并恢复服务
+        cp -af "$_upg_bak"/. "$CRASHDIR"/ 2>/dev/null
+        [ "$_was_running" = 1 ] && "$CRASHDIR"/start.sh start >/dev/null 2>&1
+        content_line "\033[33m$UPG_EXTRACT_FAIL\033[0m"
+        rm -rf "$_upg_stage" "$_upg_bak" "$TMPDIR"/ShellCrash.tar.gz
+        error_down
+        return 1
+    fi
 }
 
 setscripts() {
@@ -229,7 +252,7 @@ setcpucore() {
     fi
 }
 
-# 手动指定内核类型
+# 手动指定内核类型（仅提供本仓库 update 分支实际构建分发的内核）
 setcoretype() {
     while true; do
         echo "$crashcore" | grep -q 'singbox' && core_old=singbox || core_old=clash
@@ -237,7 +260,6 @@ setcoretype() {
         btm_box "1) Mihomo(Meta)" \
             "2) Singbox-reF1nd" \
             "3) Singbox" \
-            "4) Clash" \
             "" \
             "0) $COMMON_BACK"
         read -r -p "$COMMON_INPUT> " num
@@ -251,9 +273,6 @@ setcoretype() {
             ;;
         3)
             crashcore=singbox
-            ;;
-        4)
-            crashcore=clash
             ;;
         *)
             errornum

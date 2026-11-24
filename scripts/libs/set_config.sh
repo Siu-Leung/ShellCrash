@@ -209,9 +209,9 @@ recover_interrupted_upgrade() {
 }
 
 # 统一事务化脚本升级（菜单更新与定时任务 112 共用）：
-# 1) 暂存解包 + Tar-Slip 校验 + 关键脚本语法检查（不满足绝不触碰现用目录）
-# 2) 执行 start.sh stop 并校验退出码，停服失败立即中止
-# 3) 在 $CRASHDIR/.upg_txn 写入回滚快照与绑定主进程 PID 的 pending 标记（防自身子进程或 systemd 钩子误回滚）
+# 1) 若存在上次未完成的回滚快照(rollback_failed)或并发升级锁，立即中止并完整保留 .upg_txn/bak
+# 2) 暂存解包 + Tar-Slip 校验 + 关键脚本语法检查（不满足绝不触碰现用目录）
+# 3) 停服前预建并逐字节校验备份快照，停服后二次同步配置快照；任何备份失败立即中止且绝不进入覆盖阶段
 # 4) 子 Shell 运行 init.sh + 校验新版本落盘与实例级健康度恢复；任何失败或 INT/TERM 均字节级回滚并返回非零
 apply_script_upgrade() {
     _asu_tar="$1"
@@ -220,6 +220,19 @@ apply_script_upgrade() {
     _asu_txn="$CRASHDIR/.upg_txn"
     _asu_bak="$_asu_txn/bak"
     _asu_list="$_asu_txn/newlist"
+
+    # 若存在上次恢复失败留存的 .upg_txn/rollback_failed 或并发/残留事务，严禁清空快照目录
+    if [ -f "$_asu_txn/rollback_failed" ]; then
+        echo "检测到上次升级回滚未完成($_asu_txn/rollback_failed)，已中止升级以保留恢复快照($_asu_bak)！" >&2
+        return 1
+    fi
+    if [ -f "$_asu_txn/pending" ]; then
+        if ! recover_interrupted_upgrade || [ -e "$_asu_txn" ]; then
+            echo "检测到正在进行或未恢复完成的升级事务($_asu_txn)，已中止本次升级！" >&2
+            return 1
+        fi
+    fi
+
     rm -rf "$_asu_stage" "$_asu_txn"
     mkdir -p "$_asu_stage" "$_asu_bak" || return 1
 
@@ -235,9 +248,35 @@ apply_script_upgrade() {
         return 1
     fi
 
+    _asu_copy_verify() {
+        _acv_src="$1"
+        _acv_dst="$2"
+        mkdir -p "$(dirname "$_acv_dst")" 2>/dev/null || return 1
+        { cp -p "$_acv_src" "$_acv_dst" 2>/dev/null || cp -f "$_acv_src" "$_acv_dst" 2>/dev/null; } || return 1
+        cmp -s "$_acv_src" "$_acv_dst"
+    }
+
+    # 停服前先记录新包成员列表并完成首轮字节级备份校验（磁盘满或只读时连现用服务都不停）
+    if ! ( cd "$_asu_stage" && find . -type f | sed 's|^\./||' ) >"$_asu_list" || [ ! -s "$_asu_list" ]; then
+        rm -rf "$_asu_stage" "$_asu_txn"
+        return 1
+    fi
+    while IFS= read -r _rel || [ -n "$_rel" ]; do
+        [ -n "$_rel" ] || continue
+        if [ -f "$CRASHDIR/$_rel" ]; then
+            if ! _asu_copy_verify "$CRASHDIR/$_rel" "$_asu_bak/$_rel"; then
+                rm -rf "$_asu_stage" "$_asu_txn"
+                return 1
+            fi
+        fi
+    done <"$_asu_list"
+
     _asu_was_running=0
     [ -n "$(pidof CrashCore 2>/dev/null)" ] && _asu_was_running=1
-    printf '%s\n' "$_asu_was_running" >"$_asu_txn/was_running"
+    if ! printf '%s\n' "$_asu_was_running" >"$_asu_txn/was_running" || [ ! -s "$_asu_txn/was_running" ]; then
+        rm -rf "$_asu_stage" "$_asu_txn"
+        return 1
+    fi
 
     # 停服失败时严禁覆盖运行中的脚本目录
     if [ -x "$CRASHDIR/start.sh" ] && ! "$CRASHDIR"/start.sh stop >/dev/null 2>&1; then
@@ -245,21 +284,19 @@ apply_script_upgrade() {
         return 1
     fi
 
-    # 记录新包内所有相对路径，并对既有同名文件与关键配置做字节级备份
-    ( cd "$_asu_stage" && find . -type f | sed 's|^\./||' ) >"$_asu_list"
-    while IFS= read -r _rel; do
-        [ -n "$_rel" ] || continue
-        if [ -e "$CRASHDIR/$_rel" ]; then
-            mkdir -p "$_asu_bak/$(dirname "$_rel")"
-            cp -p "$CRASHDIR/$_rel" "$_asu_bak/$_rel" 2>/dev/null || cp -f "$CRASHDIR/$_rel" "$_asu_bak/$_rel" 2>/dev/null
-        fi
-    done <"$_asu_list"
+    # 停服后二次同步关键配置文件快照（覆盖 stop 期间 web_save 等合法写盘）并写入主进程 PID 锁；失败则恢复原服务并中止
+    _asu_prep_err=0
     for _cfg in configs/ShellCrash.cfg configs/command.env configs/directories.env; do
         if [ -f "$CRASHDIR/$_cfg" ]; then
-            mkdir -p "$_asu_bak/configs"
-            cp -p "$CRASHDIR/$_cfg" "$_asu_bak/$_cfg" 2>/dev/null || cp -f "$CRASHDIR/$_cfg" "$_asu_bak/$_cfg" 2>/dev/null
+            _asu_copy_verify "$CRASHDIR/$_cfg" "$_asu_bak/$_cfg" || _asu_prep_err=1
         fi
     done
+    if [ "$_asu_prep_err" != "0" ] || \
+       ! printf '%s\n' "$$" >"$_asu_txn/pending" || [ ! -s "$_asu_txn/pending" ]; then
+        rm -rf "$_asu_stage" "$_asu_txn"
+        [ "$_asu_was_running" = "1" ] && "$CRASHDIR"/start.sh start >/dev/null 2>&1 || true
+        return 1
+    fi
 
     _asu_rollback() {
         trap '' TERM INT
@@ -272,7 +309,6 @@ apply_script_upgrade() {
         rm -rf "$_asu_stage" "$_asu_tar"
     }
 
-    printf '%s\n' "$$" >"$_asu_txn/pending"
     _SC_UPG_ACTIVE="$$"
     export _SC_UPG_ACTIVE
     trap '_asu_rollback; exit 143' TERM

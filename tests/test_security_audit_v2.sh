@@ -518,16 +518,17 @@ fi
 assert_no "$ROOT/scripts/starts/shellcrash.service" 'ExecStart=.*>/dev/null' 'shellcrash.service ExecStart 无字面 >/dev/null'
 assert_no "$ROOT/scripts/start.sh" 'ExecStart=.*>/dev/null' 'start.sh ExecStart 改写无字面 >/dev/null'
 
-# 12f. crash doctor 在缺少配置文件时严格只读（不创建 ShellCrash.cfg / 不执行 init.sh）
+# 12f. crash doctor 在缺少配置文件时严格只读（含 libs/get_config.sh 存在时也不触发 init.sh）
 DOC_SB="$TMP/doc_ro"
 mkdir -p "$DOC_SB/libs" "$DOC_SB/configs"
 cp "$ROOT/scripts/menu.sh" "$DOC_SB/"
 cp "$ROOT/scripts/libs/doctor.sh" "$DOC_SB/libs/"
+cp "$ROOT/scripts/libs/get_config.sh" "$DOC_SB/libs/"
 printf '#!/bin/sh\ntouch "%s/INIT_RAN"\n' "$DOC_SB" >"$DOC_SB/init.sh"
 chmod +x "$DOC_SB/init.sh"
 TMPDIR="$TMP/doc_tmp" sh "$DOC_SB/menu.sh" doctor >/dev/null 2>&1 || true
 if [ ! -e "$DOC_SB/INIT_RAN" ] && [ ! -e "$DOC_SB/configs/ShellCrash.cfg" ]; then
-    ok "crash doctor 在未初始化目录下严格只读（未触发 init.sh）"
+    ok "crash doctor 在未初始化目录下严格只读（含 get_config.sh 存在时亦未触发 init.sh）"
 else
     bad "crash doctor 产生了写入/初始化副作用"
 fi
@@ -1135,10 +1136,47 @@ else
     ok "V6: 真实 ELF 核心进程存活但控制器 API 未响应时准确拦截并返回非零"
 fi
 
+# 15e. 存在 rollback_failed 时再次发起 apply_script_upgrade：必须立即中止并保留上次 .upg_txn/bak 恢复资料
+if CRASHDIR="$V6_RB/inst" TMPDIR="$V6_RB/tmp" sh -c ". '$ROOT/scripts/libs/set_config.sh'; apply_script_upgrade '$V6/v6_pkg.tar.gz'" >/dev/null 2>&1; then
+    bad "V7: 存在 rollback_failed 时 apply_script_upgrade 不应继续覆盖并删除快照"
+else
+    if [ -f "$V6_RB/inst/.upg_txn/rollback_failed" ] && \
+       grep -q '^versionsh_l=1.9.7-hardened.3$' "$V6_RB/inst/.upg_txn/bak/configs/ShellCrash.cfg"; then
+        ok "V7: 存在 rollback_failed 时再次升级立即中止并完整保住上次 .upg_txn/bak 快照"
+    else
+        bad "V7: 再次升级误删了上次 rollback_failed 的 .upg_txn/bak 快照"
+    fi
+fi
+
+# 15f. 备份复制失败（如磁盘满/cp 失败）时：绝不进入覆盖阶段，现用脚本与服务原样保留
+V7_BKFAIL="$TMP/v7_bkfail"
+mkdir -p "$V7_BKFAIL/inst/configs" "$V7_BKFAIL/inst/libs" "$V7_BKFAIL/tmp"
+cp "$ROOT/scripts/libs/set_config.sh" "$V7_BKFAIL/inst/libs/set_config.sh"
+printf '1.9.7-hardened.4\n' > "$V7_BKFAIL/inst/version"
+printf '#!/bin/sh\n# intact-start\nexit 0\n' > "$V7_BKFAIL/inst/start.sh"
+printf '#!/bin/sh\nexit 0\n' > "$V7_BKFAIL/inst/menu.sh"
+printf '#!/bin/sh\nexit 0\n' > "$V7_BKFAIL/inst/init.sh"
+chmod +x "$V7_BKFAIL/inst/start.sh" "$V7_BKFAIL/inst/menu.sh" "$V7_BKFAIL/inst/init.sh"
+printf 'versionsh_l=1.9.7-hardened.4\n' > "$V7_BKFAIL/inst/configs/ShellCrash.cfg"
+if CRASHDIR="$V7_BKFAIL/inst" TMPDIR="$V7_BKFAIL/tmp" sh -c "
+    . '$V7_BKFAIL/inst/libs/set_config.sh'
+    cp() { return 1; }
+    apply_script_upgrade '$V6/v6_pkg.tar.gz'
+" >/dev/null 2>&1; then
+    bad "V7: 备份复制失败时 apply_script_upgrade 不应返回 0"
+else
+    if grep -q '# intact-start' "$V7_BKFAIL/inst/start.sh" && \
+       [ "$(tr -d '\r\n ' < "$V7_BKFAIL/inst/version")" = "1.9.7-hardened.4" ]; then
+        ok "V7: 备份快照复制失败时在覆盖前立即阻断，现用目录 100% 原样未动"
+    else
+        bad "V7: 备份快照复制失败后仍改动了现用目录"
+    fi
+fi
+
 echo ''
 if [ "$FAIL" -eq 0 ]; then
-    printf '\033[32mV2/V3/V4/V5/V6 全面安全、逻辑与真实 systemd 验收回归测试全部通过\033[0m\n'
+    printf '\033[32mV2/V3/V4/V5/V6/V7 全面安全、逻辑与真实 systemd 验收回归测试全部通过\033[0m\n'
 else
-    printf '\033[31mV2/V3/V4/V5/V6 审计回归测试失败 %d 项\033[0m\n' "$FAIL"
+    printf '\033[31mV2/V3/V4/V5/V6/V7 审计回归测试失败 %d 项\033[0m\n' "$FAIL"
     exit 1
 fi

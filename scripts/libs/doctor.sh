@@ -3,7 +3,15 @@
 
 run_doctor() {
     [ -z "$CRASHDIR" ] && CRASHDIR=$(cd "$(dirname "$0")/.." && pwd)
-    [ -f "$CRASHDIR/libs/get_config.sh" ] && . "$CRASHDIR/libs/get_config.sh" 2>/dev/null
+    # 严格只读加载现存配置文件，绝不调用 get_config.sh 以免触发 init.sh 或自动回滚副作用
+    [ -f "$CRASHDIR/configs/directories.env" ] && . "$CRASHDIR/configs/directories.env" 2>/dev/null
+    [ -f "$CRASHDIR/configs/command.env" ] && . "$CRASHDIR/configs/command.env" 2>/dev/null
+    [ -f "$CRASHDIR/configs/ShellCrash.cfg" ] && . "$CRASHDIR/configs/ShellCrash.cfg" 2>/dev/null
+    [ -z "$mix_port" ] && mix_port=7890
+    [ -z "$redir_port" ] && redir_port=7892
+    [ -z "$tproxy_port" ] && tproxy_port=7893
+    [ -z "$db_port" ] && db_port=9999
+    [ -z "$dns_port" ] && dns_port=1053
 
     _doc_ok()   { printf '  [\033[32mOK\033[0m]   %s\n' "$1"; }
     _doc_warn() { printf '  [\033[33mWARN\033[0m] %s\n' "$1"; }
@@ -20,6 +28,11 @@ run_doctor() {
         _doc_ok "更新分支已锁定加固版 dev (url_id=${url_id:-custom})"
     else
         _doc_warn "当前 release_type=${release_type} 非 dev，建议在 9->7 切回加固版 dev"
+    fi
+    if [ -f "$CRASHDIR/.upg_txn/rollback_failed" ]; then
+        _doc_warn "检测到未完成的升级回滚快照: $CRASHDIR/.upg_txn/bak (请先核查恢复后再升级)"
+    elif [ -f "$CRASHDIR/.upg_txn/pending" ]; then
+        _doc_warn "检测到挂起的升级事务标记: $CRASHDIR/.upg_txn/pending"
     fi
 
     # 2. 进程与运行模式

@@ -537,12 +537,16 @@ normalize_and_finalize_jsons() { #修饰文件
     sed -i '/"process_name": \[/,/],$/d' "$TMPDIR"/jsons/route.json
     sed -i '/"process_name": "[^"]*",/d' "$TMPDIR"/jsons/route.json
 	sed -i 's/"auto_detect_interface": true/"auto_detect_interface": false/g' "$TMPDIR"/jsons/route.json
-    #跳过本地tls证书验证（安全加固：fail-closed，仅显式 skip_cert=ON 时跳过）
-    if [ "$skip_cert" = "ON" ]; then
+    #节点 TLS 证书策略（node_tls）：follow=跟随订阅不改（默认）；skip=全部跳过；verify=全部校验
+    [ -f "$CRASHDIR"/libs/tls_policy.sh ] && . "$CRASHDIR"/libs/tls_policy.sh
+    case "$(tls_node_mode)" in
+    skip)
         sed -i 's/"insecure": false/"insecure": true/g' "$TMPDIR"/jsons/outbounds.json "$TMPDIR"/jsons/providers.json 2>/dev/null
-    else
+        ;;
+    verify)
         sed -i 's/"insecure": true/"insecure": false/g' "$TMPDIR"/jsons/outbounds.json "$TMPDIR"/jsons/providers.json 2>/dev/null
-    fi
+        ;;
+    esac
     #判断可用并修饰outbounds&providers&route.json结尾
     for file in outbounds providers route; do
         if [ -n "$(grep ${file} "$TMPDIR"/jsons/${file}.json 2>/dev/null)" ]; then

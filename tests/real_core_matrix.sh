@@ -316,4 +316,69 @@ EOF
 ) || exit 1
 echo "  PASS stock singbox all 4 DNS modes + singboxr provider rejection"
 
+echo "=== 7. node_tls=skip/verify: provider override_tls / skip-cert-verify 被真实内核接受 ==="
+for _nt in skip verify; do
+    [ "$_nt" = skip ] && _want=true || _want=false
+    # Mihomo
+    SB="$WORK/meta_nodetls_$_nt"
+    setup_sandbox "$SB" meta
+    mkdir -p "$SB/subs"
+    for _r in "$REPO"/rules/clash_providers/*.yaml; do
+        for _rf in $(grep -oE 'ruleset/[^"[:space:]]+\.mrs' "$_r" 2>/dev/null | sort -u); do
+            cp -f "$CORES/geo/cn.mrs" "$SB/crash/$_rf"
+        done
+    done
+    printf 'trojan://secretpass@198.51.100.11:443?sni=example.com#SG-Node-02\n' >"$SB/subs/uri.txt"
+    printf 'sub_uri https://sub.invalid/uri 3 12 clash.meta\n' >"$SB/crash/configs/providers.cfg"
+    printf 'node_tls=%s\n' "$_nt" >>"$SB/crash/configs/ShellCrash.cfg"
+    (
+        export CRASHDIR="$SB/crash" TMPDIR="$SB/tmp" BINDIR="$SB/crash"
+        . "$CRASHDIR/libs/get_config.sh"
+        . "$CRASHDIR/libs/set_config.sh"
+        . "$CRASHDIR/libs/logger.sh"
+        . "$CRASHDIR/libs/check_target.sh"
+        . "$CRASHDIR/libs/local_sub_convert.sh"
+        webget() { cp -f "$SB/subs/uri.txt" "$1"; }
+        get_bin() { [ -f "$REPO/$2" ] && cp -f "$REPO/$2" "$1"; }
+        local_build_clash_config >/dev/null || exit 1
+        grep -q "skip-cert-verify: $_want" "$CRASHDIR/yamls/config.yaml" || { echo "  FAIL meta node_tls=$_nt override missing" >&2; exit 1; }
+        . "$CRASHDIR/starts/clash_modify.sh"
+        dns_mod=mix
+        modify_yaml >/dev/null || exit 1
+        "$TMPDIR/CrashCore" -t -d "$BINDIR" -f "$TMPDIR/config.yaml" >/dev/null || exit 1
+    ) || exit 1
+    rm -rf "$SB"
+    # Sing-BoxR
+    SB="$WORK/sbr_nodetls_$_nt"
+    setup_sandbox "$SB" singboxr
+    mkdir -p "$SB/subs"
+    for _r in "$REPO"/rules/singbox_providers/*.json; do
+        for _rf in $(grep -oE 'ruleset/[^"[:space:]]+\.srs' "$_r" 2>/dev/null | sort -u); do
+            cp -f "$CORES/geo/cn.srs" "$SB/crash/$_rf"
+        done
+    done
+    printf 'trojan://secretpass@198.51.100.11:443?sni=example.com#SG-Node-02\n' >"$SB/subs/uri.txt"
+    printf 'sub_uri https://sub.invalid/uri 3 12 sing-box\n' >"$SB/crash/configs/providers.cfg"
+    printf 'node_tls=%s\n' "$_nt" >>"$SB/crash/configs/ShellCrash.cfg"
+    (
+        export CRASHDIR="$SB/crash" TMPDIR="$SB/tmp" BINDIR="$SB/crash"
+        . "$CRASHDIR/libs/get_config.sh"
+        . "$CRASHDIR/libs/set_config.sh"
+        . "$CRASHDIR/libs/logger.sh"
+        . "$CRASHDIR/libs/check_target.sh"
+        . "$CRASHDIR/libs/local_sub_convert.sh"
+        webget() { cp -f "$SB/subs/uri.txt" "$1"; }
+        get_bin() { [ -f "$REPO/$2" ] && cp -f "$REPO/$2" "$1"; }
+        local_build_singbox_config >/dev/null || exit 1
+        grep -q "\"insecure\": $_want" "$CRASHDIR/jsons/config.json" || { echo "  FAIL singboxr node_tls=$_nt override_tls missing" >&2; exit 1; }
+        dns_mod=mix
+        rm -rf "$TMPDIR/jsons" && mkdir -p "$TMPDIR/jsons"
+        . "$CRASHDIR/starts/singbox_modify.sh"
+        modify_json >/dev/null || exit 1
+        "$TMPDIR/CrashCore" check -D "$BINDIR" -C "$TMPDIR/jsons" || exit 1
+    ) || exit 1
+    rm -rf "$SB"
+    echo "  PASS meta + singboxr node_tls=$_nt"
+done
+
 echo "ALL REAL-BINARY CHECKS PASSED!"

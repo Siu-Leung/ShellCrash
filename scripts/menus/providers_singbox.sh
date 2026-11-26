@@ -142,8 +142,22 @@ EOF
       "update_interval": "${interval2}h",
 EOF
     fi
-    # 通用部分生成（TLS fail-closed：仅 skip_cert=ON 时跳过证书校验）
-    [ "$skip_cert" = "ON" ] && override_tls='true' || override_tls='false'
+    # 通用部分生成；节点 TLS 按 node_tls：follow=不写 override_tls（跟随订阅），skip/verify=统一覆盖
+    [ -f "$CRASHDIR"/libs/tls_policy.sh ] && . "$CRASHDIR"/libs/tls_policy.sh
+    case "$(tls_node_mode)" in
+    skip) override_tls='true' ;;
+    verify) override_tls='false' ;;
+    *) override_tls='' ;;
+    esac
+    if [ -n "$override_tls" ]; then
+        _ps_tls_block=',
+      "override_tls": {
+        "enabled": true,
+        "insecure": '"$override_tls"'
+      }'
+    else
+        _ps_tls_block=''
+    fi
     cat >>"$TMPDIR"/providers/providers.json <<EOF
       "health_check": {
         "enabled": true,
@@ -153,11 +167,7 @@ EOF
       },
 	  "override_dialer": {
         "domain_resolver": "dns_proxy_server"
-	  },
-      "override_tls": {
-        "enabled": true,
-        "insecure": $override_tls
-      }
+	  }${_ps_tls_block}
     },
 EOF
     # 写入提供者（Sing-BoxR 节点筛选置于 urltest 出站组对象上）

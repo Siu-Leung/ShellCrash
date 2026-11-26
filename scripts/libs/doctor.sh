@@ -47,10 +47,22 @@ run_doctor() {
 
     # 3. 安全策略与监听边界
     if [ "${skip_cert:-OFF}" = "OFF" ]; then
-        _doc_ok "TLS 证书校验已开启 (skip_cert=OFF)"
+        _doc_ok "项目文件下载证书校验已开启 (skip_cert=OFF)"
     else
-        _doc_warn "TLS 证书校验已关闭 (skip_cert=$skip_cert)，存在中间人风险"
+        _doc_warn "项目文件下载证书校验已关闭 (skip_cert=$skip_cert)，存在中间人风险"
     fi
+    case "${sub_tls:-auto}" in
+    strict) _doc_ok "订阅拉取：严格校验 (sub_tls=strict)" ;;
+    skip) _doc_warn "订阅拉取：始终跳过证书 (sub_tls=skip)" ;;
+    *) _doc_info "订阅拉取：自动 (sub_tls=auto，证书错误时自动跳过并记日志)" ;;
+    esac
+    _doc_node_tls=$node_tls
+    [ -z "$_doc_node_tls" ] && { [ "$skip_cert" = "ON" ] && _doc_node_tls=skip || _doc_node_tls=follow; }
+    case "$_doc_node_tls" in
+    verify) _doc_ok "节点证书：全部校验 (node_tls=verify)" ;;
+    skip) _doc_warn "节点证书：全部跳过 (node_tls=skip)" ;;
+    *) _doc_info "节点证书：跟随订阅 (node_tls=follow)" ;;
+    esac
     if [ "$firewall_area" = "4" ] && [ "$public_support" != "ON" ]; then
         _doc_ok "纯净模式监听已收敛至 127.0.0.1 (mix=$mix_port, dns=$dns_port, panel=$db_port)"
     else

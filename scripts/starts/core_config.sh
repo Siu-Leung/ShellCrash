@@ -53,7 +53,9 @@ get_core_config() { #下载或本地转换内核配置文件（零第三方转�
     logger "正在直连源地址获取【$target】配置文件…………" 36
     core_config_new="$TMPDIR"/"$target"_config."$format"
     rm -rf "$core_config_new"
-    webget "$core_config_new" "$Https" echoon rediron skipceron "$user_agent"
+    # 直链订阅按 sub_tls 策略拉取（默认 auto：先校验，证书不对自动跳过重试并记日志）
+    [ -f "$CRASHDIR"/libs/tls_policy.sh ] && . "$CRASHDIR"/libs/tls_policy.sh
+    sub_webget "$core_config_new" "$Https" echoon rediron "$user_agent"
     if [ "$?" != "0" ]; then
         echo "-----------------------------------------------"
         logger "配置文件获取失败！" 31

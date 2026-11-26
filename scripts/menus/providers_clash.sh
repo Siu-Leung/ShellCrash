@@ -136,7 +136,12 @@ gen_providers_txt() {
       interval: $((interval * 60))
 EOF
     [ "$crashcore" = 'meta' ] && {
-        [ "$skip_cert" = "ON" ] && skip_cert_verify='skip-cert-verify: true'
+        # 节点 TLS 按 node_tls：follow=不覆盖（跟随订阅），skip/verify=统一覆盖
+        [ -f "$CRASHDIR"/libs/tls_policy.sh ] && . "$CRASHDIR"/libs/tls_policy.sh
+        case "$(tls_node_mode)" in
+        skip) skip_cert_verify='skip-cert-verify: true' ;;
+        verify) skip_cert_verify='skip-cert-verify: false' ;;
+        esac
         cat >>"$TMPDIR"/providers/providers.yaml <<EOF
     header:
       User-Agent: ["$ua"]

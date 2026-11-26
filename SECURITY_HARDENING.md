@@ -84,3 +84,20 @@ for t in tests/test_*.sh tests/clash_geodata.sh; do sh "$t" || exit 1; done  # �
 ```
 
 所有测试脚本均兼容无 `ripgrep`（自动回退至标准 `grep -E`）的纯 Linux 环境。
+
+## 1.9.7-hardened.6：证书校验拆分（修复节点"跳过证书"被强制关闭）
+
+此前 `skip_cert` 一个开关同时控制"项目文件下载"和"所有节点的 `skip-cert-verify`/`insecure`"。
+默认 `OFF` 时，订阅里本来标了跳过证书的自签节点会被强制改成校验，导致连不上；证书有问题的订阅也拉不下来。现拆为三项：
+
+| 开关 | 管什么 | 默认 | 可选 |
+|---|---|---|---|
+| `skip_cert` | 项目文件下载（内核/规则/面板/脚本/TG） | `OFF` 严格 | `ON` 跳过 |
+| `sub_tls` | 订阅拉取（本地转换 + 直链配置） | `auto`：先严格，失败后跳过证书重试并记日志 | `strict` / `skip` |
+| `node_tls` | 节点自身 TLS | `follow`：订阅写什么用什么，不改写 | `skip`（原项目行为）/ `verify` |
+
+- 兼容：老配置只有 `skip_cert=ON`（原项目默认）且未设置 `node_tls` 时，节点按 `skip` 处理，升级后行为不变。
+- 日志只记录订阅主机名，不记录账号与 token。
+- BusyBox wget / OpenWrt uclient-fetch 分支也遵循证书策略。
+- 菜单：功能设置 → 4) 证书校验（文件/订阅/节点）。
+- 已知限制：内核自己拉取的 `type: http` / `remote` 订阅（非本地转换模式）由内核校验证书，脚本无法放行，与原项目相同。

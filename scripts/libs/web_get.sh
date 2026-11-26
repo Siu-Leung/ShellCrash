@@ -3,7 +3,7 @@
 # webget —— 项目内部文件下载器（带代理/直连双路径与失败清理）
 # 用途：根据 CrashCore 是否运行，选择代理（raw.githubusercontent.com）或直连（jsdelivr CDN）地址下载文件
 # 参数：$1=本地目标路径 $2=在线地址 $3=输出显示(echooff/echoon) $4=重定向控制(rediroff)
-#       $5=证书校验(skipceroff) $6=自定义UA
+#       $5=证书策略(skipceroff=强制校验 / skipcerforce=强制跳过 / 其他=按 skip_cert) $6=自定义UA
 # 返回：0 成功；1 失败（失败时仅删除本次新建的普通文件，保留原有文件/符号链接/设备文件）
 # 设计说明：代理模式下把 jsdelivr/gh.jwsc 地址映射回 raw 直链，避免 CDN 在代理环境下不可用；
 #           直连模式反之把 raw 映射为 jsdelivr 镜像加速。
@@ -32,11 +32,12 @@ webget() (
     if wget --help 2>&1 | grep -q 'show-progress' >/dev/null 2>&1; then
         [ "$3" = "echooff" ] && progress='-q' || progress='-q --show-progress'
         [ "$4" = "rediroff" ] && redirect='--max-redirect=0' || redirect=''
-        # 安全加固：fail-closed，仅当未强制 skipceroff 且显式 skip_cert=ON 时才跳过校验
-        if [ "$5" = "skipceroff" ] || [ "${skip_cert:-OFF}" = OFF ] || [ "$skip_cert" != "ON" ]; then
-            certificate=''
-        else
+        # 证书策略：skipcerforce=强制跳过（仅订阅兼容重试使用）；skipceroff=强制校验；
+        # 其余按 skip_cert（项目文件下载开关），仅显式 ON 才跳过（fail-closed）
+        if [ "$5" = "skipcerforce" ] || { [ "$5" != "skipceroff" ] && [ "$skip_cert" = "ON" ]; }; then
             certificate='--no-check-certificate'
+        else
+            certificate=''
         fi
         if [ -n "$_ua" ]; then
             wget_proxy on --user-agent "$_ua" $progress $redirect $certificate --timeout=3 -O "$_out_path" "$url" && return 0 #成功则退出否则重试
@@ -47,11 +48,11 @@ webget() (
         fi
     elif curl --version >/dev/null 2>&1; then
         [ "$4" = "rediroff" ] && redirect='' || redirect='-L'
-        # 安全加固：fail-closed，仅当未强制 skipceroff 且显式 skip_cert=ON 时才跳过校验
-        if [ "$5" = "skipceroff" ] || [ "${skip_cert:-OFF}" = OFF ] || [ "$skip_cert" != "ON" ]; then
-            certificate=''
-        else
+        # 证书策略同上：skipcerforce=强制跳过；skipceroff=强制校验；其余仅 skip_cert=ON 才跳过
+        if [ "$5" = "skipcerforce" ] || { [ "$5" != "skipceroff" ] && [ "$skip_cert" = "ON" ]; }; then
             certificate='-k'
+        else
+            certificate=''
         fi
         if [ "$3" = "echooff" ]; then
             progress='-s'
@@ -95,8 +96,13 @@ webget() (
         [ "$rc" = 0 ] && [ "$result" = "200" ] && return 0
     elif ckcmd wget; then
         [ "$3" = "echooff" ] && progress='-q'
-        wget_proxy on $progress -O "$_out_path" "$url" && return 0 #成功则退出否则重试
-        wget_proxy off $progress -O "$_out_path" "$_orig_url" && return 0
+        # BusyBox wget / OpenWrt uclient-fetch：支持 --no-check-certificate 时同样遵循证书策略
+        certificate=''
+        if [ "$5" = "skipcerforce" ] || { [ "$5" != "skipceroff" ] && [ "$skip_cert" = "ON" ]; }; then
+            wget --help 2>&1 | grep -q 'no-check-certificate' && certificate='--no-check-certificate'
+        fi
+        wget_proxy on $progress $certificate -O "$_out_path" "$url" && return 0 #成功则退出否则重试
+        wget_proxy off $progress $certificate -O "$_out_path" "$_orig_url" && return 0
     else
         echo "No Curl or Wget！！！"
         return 1

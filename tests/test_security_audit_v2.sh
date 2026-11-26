@@ -165,7 +165,8 @@ assert_no "$ROOT/tools/tg_bot.sh" 'curl[[:space:]]+-[A-Za-z]*k' 'tools/tg_bot.sh
 
 echo '== 4. 监听收敛、防火墙公网拦截与 IPv6 清理修复 =='
 SB4="$TMP/mod_sb"
-mkdir -p "$SB4/configs" "$SB4/yamls" "$SB4/jsons" "$SB4/tmp/jsons"
+mkdir -p "$SB4/configs" "$SB4/yamls" "$SB4/jsons" "$SB4/tmp/jsons" "$SB4/libs"
+cp "$ROOT/scripts/libs/tls_policy.sh" "$SB4/libs/"
 cat >"$SB4/core.yaml" <<'EOF'
 proxies:
   - {name: node1, type: ss, server: 1.1.1.1, port: 443, skip-cert-verify: true}
@@ -194,22 +195,45 @@ sh -c '
     external_ui_url="https://example.invalid/ui.zip"
     authentication="$2"
     secret="$3"
-    skip_cert=""
+    skip_cert="$5"
+    node_tls="$6"
     . "$4/scripts/starts/clash_modify.sh"
     prepare_clash_base_config
     generate_set_and_hosts_yaml
     split_and_customize_yaml_parts
-' _ "$SB4" "$_t_auth" "$_t_sec" "$ROOT" 2>/dev/null
+' _ "$SB4" "$_t_auth" "$_t_sec" "$ROOT" "" "" 2>/dev/null
 if grep -Fq 'listen: 127.0.0.1:1053' "$SB4/tmp/dns.yaml" && \
    grep -Fq 'allow-lan: false' "$SB4/tmp/set.yaml" && \
    grep -Fq 'external-controller: 127.0.0.1:9999' "$SB4/tmp/set.yaml" && \
-   grep -Fq 'skip-cert-verify: false' "$SB4/tmp/proxies.yaml" && \
+   grep -Fq 'skip-cert-verify: true' "$SB4/tmp/proxies.yaml" && \
    grep -Fq 'authentication: ["usr:p\"w\\x"]' "$SB4/tmp/set.yaml" && \
    grep -Fq 'secret: "sec\"r\\et"' "$SB4/tmp/set.yaml"; then
-    ok "clash_modify.sh 纯净模式 DNS/面板收敛至 127.0.0.1、TLS fail-closed、YAML 转义正常"
+    ok "clash_modify.sh 纯净模式 DNS/面板收敛至 127.0.0.1、节点证书默认跟随订阅、YAML 转义正常"
 else
     bad "clash_modify.sh 纯净模式/TLS/转义校验失败"
 fi
+
+# 4a2. node_tls=verify 强制校验；旧配置 skip_cert=ON（无 node_tls）兼容为全部跳过
+_run_4a() {
+    sh -c '
+        CRASHDIR="$1"; TMPDIR="$1/tmp"; BINDIR="$1"; core_config="$1/core.yaml"
+        crashcore=meta; firewall_area=4; public_support=OFF; dns_mod=redir_host; hosts_opt=OFF
+        mix_port=7890; redir_port=7892; tproxy_port=7893; db_port=9999; dns_port=1053; routing_mark=7894
+        skip_cert="$3"; node_tls="$4"
+        . "$2/scripts/starts/clash_modify.sh"
+        prepare_clash_base_config
+        generate_set_and_hosts_yaml
+        split_and_customize_yaml_parts
+    ' _ "$SB4" "$ROOT" "$1" "$2" 2>/dev/null
+}
+_run_4a OFF verify
+grep -Fq 'skip-cert-verify: false' "$SB4/tmp/proxies.yaml" && ok "node_tls=verify 强制节点校验证书" || bad "node_tls=verify 未生效"
+sed -i 's/skip-cert-verify: true/skip-cert-verify: false/' "$SB4/core.yaml"
+_run_4a ON ""
+grep -Fq 'skip-cert-verify: true' "$SB4/tmp/proxies.yaml" && ok "旧配置 skip_cert=ON 且无 node_tls 时节点仍全部跳过（与原项目一致）" || bad "旧配置兼容失败"
+_run_4a ON follow
+grep -Fq 'skip-cert-verify: false' "$SB4/tmp/proxies.yaml" && ok "node_tls=follow 时不受 skip_cert 影响，保持订阅原值" || bad "node_tls=follow 被 skip_cert 改写"
+sed -i 's/skip-cert-verify: false/skip-cert-verify: true/' "$SB4/core.yaml"
 
 # 4b. Sing-Box 纯净模式全入站收敛至 127.0.0.1 + 含冒号/引号密码 JSON 合法性
 _sb_auth='admin:p@ss:w"rd\1'
@@ -298,7 +322,7 @@ fi
 echo '== 7. local_sub_convert.sh 标签安全、占位符替换与 BOM+Base64 解码 =='
 SB7="$TMP/lsc_sb"
 mkdir -p "$SB7/libs"
-cp "$ROOT/scripts/libs/local_sub_convert.sh" "$SB7/libs/"
+cp "$ROOT/scripts/libs/local_sub_convert.sh" "$ROOT/scripts/libs/tls_policy.sh" "$SB7/libs/"
 for stub in web_get.sh web_get_bin.sh logger.sh; do : >"$SB7/libs/$stub"; done
 
 if CRASHDIR="$SB7" sh -c ". '$SB7/libs/local_sub_convert.sh'; local_valid_tag 'my-sub_01' && ! local_valid_tag '../evil' && ! local_valid_tag 'a/b' && ! local_valid_tag 'bad\"tag' && ! local_valid_tag 'a b'"; then
@@ -636,7 +660,7 @@ fi
 # 13d. Sing-BoxR include/exclude 置于 urltest 出站而非 providers[]，标准 singbox 明确拒绝，doh:// 归一化为 https
 SB13="$TMP/sb13"
 mkdir -p "$SB13/configs" "$SB13/libs" "$SB13/providers" "$SB13/rules/singbox_providers" "$SB13/tmp"
-cp "$ROOT/scripts/libs/local_sub_convert.sh" "$SB13/libs/"
+cp "$ROOT/scripts/libs/local_sub_convert.sh" "$ROOT/scripts/libs/tls_policy.sh" "$SB13/libs/"
 cp "$ROOT/rules/singbox_providers/ShellCrash_RS_Nano.json" "$SB13/rules/singbox_providers/"
 for stub in web_get.sh web_get_bin.sh logger.sh; do printf 'logger(){ :; }\n' >"$SB13/libs/$stub"; done
 printf 'ss://YWVzLTI1Ni1nY206cGFzcw@1.2.3.4:8388#KeepNode\nss://YWVzLTI1Ni1nY206cGFzcw@5.6.7.8:8388#DropNode\n' >"$SB13/providers/src.txt"

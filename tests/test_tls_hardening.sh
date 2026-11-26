@@ -36,8 +36,8 @@ echo '== 1. 默认值为严格校验(OFF) =='
 rg -q '^\[ -z "\$skip_cert" \] && skip_cert=OFF' "$ROOT/scripts/libs/get_config.sh" && ok "get_config 默认 OFF" || bad "get_config 默认非 OFF"
 rg -q '\[ -z "\$skip_cert" \] && skip_cert=OFF' "$ROOT/scripts/menus/2_settings.sh" && ok "2_settings 默认 OFF" || bad "2_settings 默认非 OFF"
 
-echo '== 2. web_get 依据 skip_cert 决定证书参数（保持兼容）=='
-rg -q 'skipceroff.*skip_cert.*OFF' "$ROOT/scripts/libs/web_get.sh" && ok "curl/wget 严格分支判定存在" || bad "证书判定缺失"
+echo '== 2. web_get 依据 skip_cert 决定证书参数（仅显式 ON 跳过，skipcerforce 仅供订阅兼容重试）=='
+rg -q 'skipceroff.*skip_cert.*= "ON"' "$ROOT/scripts/libs/web_get.sh" && ok "curl/wget 严格分支判定存在" || bad "证书判定缺失"
 # 确认严格模式分支(certificate='')与跳过分支(certificate='-k'/'--no-check-certificate')成对存在
 _n_strict=$(rg -c "certificate=''" "$ROOT/scripts/libs/web_get.sh")
 _n_skip=$(rg -c "certificate='(-k|--no-check-certificate)'" "$ROOT/scripts/libs/web_get.sh")

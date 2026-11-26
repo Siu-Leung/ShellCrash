@@ -31,7 +31,7 @@ CRASHDIR="$SANDBOX/crash"
 TMPDIR="$SANDBOX/tmp"
 BINDIR="$CRASHDIR"
 mkdir -p "$CRASHDIR/configs" "$CRASHDIR/providers" "$CRASHDIR/libs" "$TMPDIR"
-cp scripts/libs/web_get.sh scripts/libs/web_get_bin.sh scripts/libs/set_proxy.sh scripts/libs/logger.sh scripts/libs/web_json.sh "$CRASHDIR/libs/"
+cp scripts/libs/web_get.sh scripts/libs/web_get_bin.sh scripts/libs/set_proxy.sh scripts/libs/logger.sh scripts/libs/web_json.sh scripts/libs/tls_policy.sh "$CRASHDIR/libs/"
 . ./scripts/libs/local_sub_convert.sh
 
 # 2a. Base64 编码订阅（含缺失 padding + 过滤）
@@ -95,15 +95,72 @@ if local_build_clash_config; then
         && grep -q 'type: file' "$CFG" \
         && grep -q 'path: "./providers/MySub.txt"' "$CFG" \
         && grep -q 'path: "./providers/uri_group"' "$CFG" \
-        && grep -q 'skip-cert-verify: false' "$CFG" \
+        && ! grep -q 'skip-cert-verify' "$CFG" \
         && ! grep -q 'https://sub.example.invalid' "$CFG"; then
-        pass "Clash 本地转换生成纯 file provider 配置，无原始订阅 URL 残留"
+        pass "Clash 本地转换生成纯 file provider 配置，无原始订阅 URL 残留，默认 node_tls=follow 不覆盖节点证书设置"
     else
         fail "Clash 本地转换配置内容不符预期"
     fi
 else
     fail "local_build_clash_config 执行失败"
 fi
+
+echo "== 3b. 证书策略：节点 node_tls 与订阅 sub_tls =="
+for _nt in skip verify; do
+    node_tls=$_nt
+    if local_build_clash_config; then
+        [ "$_nt" = skip ] && _want='skip-cert-verify: true' || _want='skip-cert-verify: false'
+        if grep -q "$_want" "$CRASHDIR/yamls/config.yaml"; then
+            pass "node_tls=$_nt 时 provider override 写入 $_want"
+        else
+            fail "node_tls=$_nt 时 override 不符预期"
+        fi
+    else
+        fail "node_tls=$_nt 构建失败"
+    fi
+done
+unset node_tls
+# 老配置兼容：只保存了 skip_cert=ON 且没有 node_tls 时，节点仍全部跳过（与原项目一致）
+skip_cert=ON
+if [ "$(tls_node_mode)" = skip ]; then pass "旧配置 skip_cert=ON 兼容映射为 node_tls=skip"; else fail "旧配置 skip_cert=ON 兼容映射失败"; fi
+skip_cert=OFF
+[ "$(tls_node_mode)" = follow ] && pass "默认 node_tls=follow" || fail "默认 node_tls 不是 follow"
+
+# 模拟证书错误：严格校验(skipceroff)失败，跳过证书(skipcerforce)成功
+WG_LOG="$SANDBOX/wg.log"
+webget() {
+    echo "$5" >>"$WG_LOG"
+    [ "$5" = "skipcerforce" ] || return 1
+    printf '%s' "$RAW_URIS" | base64 >"$1"
+}
+: >"$WG_LOG"; sub_tls=auto
+if sub_webget "$SANDBOX/sw_auto" "https://u:p@bad-cert.example.invalid:8443/sub?token=SECRET" echooff rediron ua \
+    && [ "$(tr '\n' ' ' <"$WG_LOG")" = "skipceroff skipcerforce " ]; then
+    pass "sub_tls=auto：先严格校验，证书失败后自动跳过证书重试成功"
+else
+    fail "sub_tls=auto 回退流程异常: $(cat "$WG_LOG")"
+fi
+: >"$WG_LOG"; sub_tls=strict
+if ! sub_webget "$SANDBOX/sw_strict" "https://bad-cert.example.invalid/sub" echooff rediron ua \
+    && [ "$(tr '\n' ' ' <"$WG_LOG")" = "skipceroff " ]; then
+    pass "sub_tls=strict：证书失败直接拒绝，不回退"
+else
+    fail "sub_tls=strict 行为异常: $(cat "$WG_LOG")"
+fi
+: >"$WG_LOG"; sub_tls=skip
+if sub_webget "$SANDBOX/sw_skip" "https://bad-cert.example.invalid/sub" echooff rediron ua \
+    && [ "$(tr '\n' ' ' <"$WG_LOG")" = "skipcerforce " ]; then
+    pass "sub_tls=skip：直接跳过证书"
+else
+    fail "sub_tls=skip 行为异常: $(cat "$WG_LOG")"
+fi
+unset sub_tls
+_h=$(tls_url_host "https://u:p@bad-cert.example.invalid:8443/sub?token=SECRET")
+[ "$_h" = "bad-cert.example.invalid" ] && pass "日志只记录主机名，不泄露账号/token" || fail "tls_url_host 输出异常: $_h"
+webget() {
+    printf '%s' "$RAW_URIS" | base64 >"$1"
+    return 0
+}
 
 echo "== 4. 零信任二级审计静态断言 =="
 if ! grep -q '/sub?target=' scripts/starts/core_config.sh; then
@@ -220,7 +277,7 @@ else
     fail "providers.cfg 末尾无换行符解析失败"
 fi
 # 测试 doctor.sh 只读运行
-if (. ./scripts/libs/doctor.sh && run_doctor | grep -q 'TLS 证书校验已开启'); then
+if (. ./scripts/libs/doctor.sh && run_doctor | grep -q '项目文件下载证书校验已开启'); then
     pass "doctor.sh 健康自检正常输出"
 else
     fail "doctor.sh 运行失败"

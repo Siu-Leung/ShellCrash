@@ -14,6 +14,7 @@
 . "$CRASHDIR"/libs/web_get.sh
 . "$CRASHDIR"/libs/web_get_bin.sh
 . "$CRASHDIR"/libs/logger.sh
+. "$CRASHDIR"/libs/tls_policy.sh
 
 LOCAL_SUB_URI_RE='^(ss|ssr|vmess|vless|trojan|hysteria|hysteria2|hy2|tuic|anytls|shadowtls|wireguard|socks|http)://'
 
@@ -216,7 +217,8 @@ local_fetch_one_provider() {
             _ua_arg="$_ua"
             [ "$_ua_arg" = "none" ] && _ua_arg=""
             [ "$_ua_arg" = "auto" ] && _ua_arg="clash.meta/mihomo"
-            if ! webget "$_stage_raw" "$_src" echoon rediron skipceron "$_ua_arg"; then
+            # 订阅拉取按 sub_tls 策略（默认 auto：先校验，证书不对自动跳过重试并记日志）
+            if ! sub_webget "$_stage_raw" "$_src" echoon rediron "$_ua_arg"; then
                 rm -f "$_stage_raw"
                 return 1
             fi
@@ -291,8 +293,12 @@ local_build_clash_config() {
 
     _tags=""
     _ok_count=0
-    # 安全加固：fail-closed，仅显式 skip_cert=ON 时跳过节点 TLS 校验
-    [ "$skip_cert" = "ON" ] && _skip_line="      skip-cert-verify: true" || _skip_line="      skip-cert-verify: false"
+    # 节点 TLS 按 node_tls 策略：follow=不覆盖（跟随订阅），skip/verify=统一覆盖
+    case "$(tls_node_mode)" in
+    skip) _skip_line="      skip-cert-verify: true" ;;
+    verify) _skip_line="      skip-cert-verify: false" ;;
+    *) _skip_line="" ;;
+    esac
 
     _append_clash_file_provider() {
         _ptag=$1
@@ -316,8 +322,8 @@ local_build_clash_config() {
       interval: $((_pint * 60))
     override:
       udp: true
-${_skip_line}
 EOF
+        [ -n "$_skip_line" ] && printf '%s\n' "$_skip_line" >>"$TMPDIR/providers/providers.yaml"
         [ -n "$_pinc" ] && printf '    filter: "%s"\n' "$(local_escape_dq "$_pinc")" >>"$TMPDIR/providers/providers.yaml"
         [ -n "$_pexc" ] && printf '    exclude-filter: "%s"\n' "$(local_escape_dq "$_pexc")" >>"$TMPDIR/providers/providers.yaml"
         echo '  - {name: '"$_ptag"', type: url-test, tolerance: 100, lazy: true, use: ['"$_ptag"']}' >>"$TMPDIR/providers/proxy-groups.yaml"
@@ -453,8 +459,21 @@ EOF
 
     _tags=""
     _ok_count=0
-    # 安全加固：fail-closed，仅显式 skip_cert=ON 时跳过节点 TLS 校验
-    [ "$skip_cert" = "ON" ] && _override_tls='true' || _override_tls='false'
+    # 节点 TLS 按 node_tls 策略：follow=不写 override_tls（跟随订阅），skip/verify=统一覆盖 insecure
+    case "$(tls_node_mode)" in
+    skip) _override_tls='true' ;;
+    verify) _override_tls='false' ;;
+    *) _override_tls='' ;;
+    esac
+    if [ -n "$_override_tls" ]; then
+        _sb_tls_block=',
+      "override_tls": {
+        "enabled": true,
+        "insecure": '"$_override_tls"'
+      }'
+    else
+        _sb_tls_block=''
+    fi
 
     _append_sb_local_provider() {
         _ptag=$1
@@ -483,11 +502,7 @@ EOF
       },
       "override_dialer": {
         "domain_resolver": "dns_proxy_server"
-      },
-      "override_tls": {
-        "enabled": true,
-        "insecure": $_override_tls
-      }
+      }${_sb_tls_block}
     },
 EOF
         _ob_inc='.*'

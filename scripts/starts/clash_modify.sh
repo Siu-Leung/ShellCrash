@@ -190,12 +190,16 @@ split_and_customize_yaml_parts() {
             sed -n 's/^proxies:[[:space:]]*\[[[:space:]]*\([^][:space:]].*\)\][[:space:]]*$/  - \1/p' "$core_config" >"$TMPDIR"/proxies.yaml
         fi
     done
-    #跳过本地tls证书验证（安全加固：fail-closed，仅显式 skip_cert=ON 时跳过，并同步覆盖 proxy-providers）
-    if [ "$skip_cert" = "ON" ]; then
+    #节点 TLS 证书策略（node_tls）：follow=跟随订阅不改（默认）；skip=全部跳过；verify=全部校验
+    [ -f "$CRASHDIR"/libs/tls_policy.sh ] && . "$CRASHDIR"/libs/tls_policy.sh
+    case "$(tls_node_mode)" in
+    skip)
         sed -i 's/skip-cert-verify: false/skip-cert-verify: true/g' "$TMPDIR"/proxies.yaml "$TMPDIR"/proxy-providers.yaml 2>/dev/null
-    else
+        ;;
+    verify)
         sed -i 's/skip-cert-verify: true/skip-cert-verify: false/g' "$TMPDIR"/proxies.yaml "$TMPDIR"/proxy-providers.yaml 2>/dev/null
-    fi
+        ;;
+    esac
     #插入自定义策略组
     sed -i "/#自定义策略组开始/,/#自定义策略组结束/d" "$TMPDIR"/proxy-groups.yaml
     sed -i "/#自定义策略组/d" "$TMPDIR"/proxy-groups.yaml

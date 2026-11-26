@@ -24,7 +24,8 @@ settings() {
         content_line "2) $SET_MENU_DNS\t\033[36m$dns_mod\033[0m"
         content_line "3) $SET_MENU_FW_FILTER\t$SET_MENU_FW_FILTER_DESC"
         [ "$disoverride" != "1" ] && {
-            content_line "4) $SET_MENU_SKIP_CERT\t\033[36m$skip_cert\033[0m"
+            [ -f "$CRASHDIR"/libs/tls_policy.sh ] && . "$CRASHDIR"/libs/tls_policy.sh
+            content_line "4) $SET_MENU_SKIP_CERT\t\033[36m$(tls_policy_summary)\033[0m"
             content_line "5) $SET_MENU_SNIFFER\t\033[36m$sniffer\033[0m"
             content_line "6) $SET_MENU_ADV_PORT"
         }
@@ -63,36 +64,7 @@ settings() {
             . "$CRASHDIR"/menus/fw_filter.sh && set_fw_filter
             ;;
         4)
-            line_break
-            separator_line "="
-            if [ "$skip_cert" = "OFF" ]; then
-                content_line "$SET_SKIP_CERT_NOW\033[33m$SET_DISABLED\033[0m$SET_SKIP_CERT_ENABLE_Q"
-            else
-                content_line "$SET_SKIP_CERT_NOW\033[33m$SET_ENABLED\033[0m$SET_SKIP_CERT_DISABLE_Q"
-            fi
-            separator_line "="
-            btm_box "1) $SET_YES" \
-                "0) $SET_NO_BACK"
-            read -r -p "$COMMON_INPUT> " num
-            if [ "$num" = 1 ]; then
-                if [ "$skip_cert" = OFF ]; then
-                    # 安全加固：开启"跳过证书校验"前弹出风险警告并要求二次确认，
-                    # 避免用户顺手开启而失去下载防篡改保护（原版无提示直接开启）。
-                    comp_box "\033[31m$SET_SKIP_CERT_WARN\033[0m"
-                    btm_box "1) $SET_YES" \
-                        "0) $SET_NO_BACK"
-                    read -r -p "$COMMON_INPUT> " confirm
-                    [ "$confirm" != 1 ] && continue
-                    skip_cert=ON
-                    msg_alert "\033[33m$SET_SKIP_CERT_ON\033[0m"
-                else
-                    skip_cert=OFF
-                    msg_alert "\033[33m$SET_SKIP_CERT_OFF\033[0m"
-                fi
-                setconfig skip_cert $skip_cert
-            else
-                continue
-            fi
+            set_tls_policy
             ;;
         5)
             if [ "$sniffer" = "OFF" ]; then
@@ -310,6 +282,110 @@ settings() {
                 ;;
             esac
             msg_alert "\033[32m$SET_SWITCH_OK\033[0m"
+            ;;
+        *)
+            errornum
+            ;;
+        esac
+    done
+}
+
+# 证书校验设置：项目文件下载 / 订阅拉取 / 节点证书 三项分开管理
+tls_policy_summary() {
+    [ "$skip_cert" = "ON" ] && _tps_a="$SET_TLS_SHORT_SKIP" || _tps_a="$SET_TLS_SHORT_STRICT"
+    case "$(tls_sub_mode)" in
+    strict) _tps_b="$SET_TLS_SHORT_STRICT" ;;
+    skip) _tps_b="$SET_TLS_SHORT_SKIP" ;;
+    *) _tps_b="$SET_TLS_SHORT_AUTO" ;;
+    esac
+    case "$(tls_node_mode)" in
+    skip) _tps_c="$SET_TLS_SHORT_SKIP" ;;
+    verify) _tps_c="$SET_TLS_SHORT_STRICT" ;;
+    *) _tps_c="$SET_TLS_SHORT_FOLLOW" ;;
+    esac
+    printf '%s/%s/%s' "$_tps_a" "$_tps_b" "$_tps_c"
+}
+
+set_tls_policy() {
+    [ -f "$CRASHDIR"/libs/tls_policy.sh ] && . "$CRASHDIR"/libs/tls_policy.sh
+    while true; do
+        [ "$skip_cert" = "ON" ] && _stp_a="$SET_TLS_SKIP" || _stp_a="$SET_TLS_STRICT"
+        case "$(tls_sub_mode)" in
+        strict) _stp_b="$SET_TLS_STRICT" ;;
+        skip) _stp_b="$SET_TLS_SKIP" ;;
+        *) _stp_b="$SET_TLS_AUTO" ;;
+        esac
+        case "$(tls_node_mode)" in
+        skip) _stp_c="$SET_TLS_NODE_SKIP" ;;
+        verify) _stp_c="$SET_TLS_NODE_VERIFY" ;;
+        *) _stp_c="$SET_TLS_NODE_FOLLOW" ;;
+        esac
+        comp_box "\033[30;47m$SET_TLS_TITLE\033[0m" \
+            "$SET_TLS_DESC"
+        content_line "1) $SET_TLS_ITEM_FILE\t\033[36m$_stp_a\033[0m"
+        content_line "2) $SET_TLS_ITEM_SUB\t\033[36m$_stp_b\033[0m"
+        content_line "3) $SET_TLS_ITEM_NODE\t\033[36m$_stp_c\033[0m"
+        btm_box "" \
+            "0) $COMMON_BACK"
+        read -r -p "$COMMON_INPUT> " num
+        case "$num" in
+        "" | 0)
+            break
+            ;;
+        1)
+            if [ "$skip_cert" = "ON" ]; then
+                skip_cert=OFF
+                setconfig skip_cert OFF
+                msg_alert "\033[32m$SET_SKIP_CERT_OFF\033[0m"
+            else
+                # 开启"跳过证书校验"前弹出风险警告并要求二次确认
+                comp_box "\033[31m$SET_SKIP_CERT_WARN\033[0m"
+                btm_box "1) $SET_YES" \
+                    "0) $SET_NO_BACK"
+                read -r -p "$COMMON_INPUT> " confirm
+                [ "$confirm" != 1 ] && continue
+                skip_cert=ON
+                setconfig skip_cert ON
+                # 显式保存当前节点策略，避免 node_tls 未设置时随 skip_cert=ON 被兼容逻辑带成"全部跳过"
+                [ -z "$node_tls" ] && node_tls=follow && setconfig node_tls follow
+                msg_alert "\033[33m$SET_SKIP_CERT_ON\033[0m"
+            fi
+            ;;
+        2)
+            comp_box "$SET_TLS_ITEM_SUB" \
+                "$SET_TLS_SUB_DESC"
+            btm_box "1) $SET_TLS_AUTO \033[32m($SET_TLS_RECOMMENDED)\033[0m" \
+                "2) $SET_TLS_STRICT" \
+                "3) $SET_TLS_SKIP" \
+                "" \
+                "0) $COMMON_BACK"
+            read -r -p "$COMMON_INPUT> " res
+            case "$res" in
+            1) sub_tls=auto ;;
+            2) sub_tls=strict ;;
+            3) sub_tls=skip ;;
+            *) continue ;;
+            esac
+            setconfig sub_tls "$sub_tls"
+            msg_alert "\033[32m$SET_TLS_SAVED\033[0m"
+            ;;
+        3)
+            comp_box "$SET_TLS_ITEM_NODE" \
+                "$SET_TLS_NODE_DESC"
+            btm_box "1) $SET_TLS_NODE_FOLLOW \033[32m($SET_TLS_RECOMMENDED)\033[0m" \
+                "2) $SET_TLS_NODE_SKIP" \
+                "3) $SET_TLS_NODE_VERIFY" \
+                "" \
+                "0) $COMMON_BACK"
+            read -r -p "$COMMON_INPUT> " res
+            case "$res" in
+            1) node_tls=follow ;;
+            2) node_tls=skip ;;
+            3) node_tls=verify ;;
+            *) continue ;;
+            esac
+            setconfig node_tls "$node_tls"
+            msg_alert "\033[32m$SET_TLS_SAVED_RESTART\033[0m"
             ;;
         *)
             errornum

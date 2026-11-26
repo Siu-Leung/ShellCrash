@@ -120,9 +120,18 @@ _upg_check_service_ready() {
                             curl -fsS --noproxy '*' --connect-timeout 1 --max-time 2 \
                             -H "Authorization: Bearer $secret" "http://127.0.0.1:${_dbp}/version" 2>/dev/null | grep -q '"version"' && exit 0
                     elif command -v wget >/dev/null 2>&1; then
-                        http_proxy="" https_proxy="" HTTP_PROXY="" HTTPS_PROXY="" \
-                            wget -q --timeout=2 --no-proxy --header="Authorization: Bearer $secret" \
-                            -O - "http://127.0.0.1:${_dbp}/version" 2>/dev/null | grep -q '"version"' && exit 0
+                        wget --help 2>&1 | grep -q -- '-Y' && _ucsr_np='-Y off' || _ucsr_np='--no-proxy'
+                        if wget --help 2>&1 | grep -q -- '--header'; then
+                            http_proxy="" https_proxy="" HTTP_PROXY="" HTTPS_PROXY="" \
+                                wget -q -T 2 $_ucsr_np --header="Authorization: Bearer $secret" \
+                                -O - "http://127.0.0.1:${_dbp}/version" 2>/dev/null | grep -q '"version"' && exit 0
+                        else
+                            # OpenWrt uclient-fetch 无 --header：无 secret 查 version；有 secret 时收到 401 即代表控制器已监听响应
+                            _ucsr_out=$(http_proxy="" https_proxy="" HTTP_PROXY="" HTTPS_PROXY="" \
+                                wget -T 2 $_ucsr_np -O - "http://127.0.0.1:${_dbp}/version" 2>&1)
+                            printf '%s\n' "$_ucsr_out" | grep -q '"version"' && exit 0
+                            [ -n "$secret" ] && printf '%s\n' "$_ucsr_out" | grep -q 'HTTP error 401' && exit 0
+                        fi
                     else
                         exit 0
                     fi

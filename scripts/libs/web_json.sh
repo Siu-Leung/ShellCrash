@@ -9,6 +9,6 @@ web_json_post() (
     else
         _cert=''
         [ "$skip_cert" = "ON" ] && wget_nocheck_supported && _cert='--no-check-certificate'
-        wget_proxy on -q $_cert --timeout=3 --method=POST --header="Content-Type: application/json" --body-data="$2" -O /dev/null "$1" >/dev/null 2>&1
+        wget_proxy on -q $_cert -T 3 --header="Content-Type: application/json" --post-data="$2" -O /dev/null "$1" >/dev/null 2>&1
     fi
 )

@@ -33,7 +33,7 @@ webpost() (
 	else
 		wcert=""
 		[ "$skip_cert" = "ON" ] && { wget --help 2>&1 | grep -q 'no-check-certificate' || ! wget --no-check-certificate --help 2>&1 | grep -qiE 'option[^a-z]*no-check-certificate'; } && wcert="--no-check-certificate"
-		wget_proxy on -q $wcert --timeout=5 --method=POST --header="Content-Type: application/json; charset=utf-8" --body-data="$2" -O /dev/null "$1" >/dev/null 2>&1
+		wget_proxy on -q $wcert -T 5 --header="Content-Type: application/json; charset=utf-8" --post-data="$2" -O /dev/null "$1" >/dev/null 2>&1
 	fi
 )
 send_msg() {

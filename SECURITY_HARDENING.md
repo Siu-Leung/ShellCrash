@@ -112,6 +112,7 @@ for t in tests/test_*.sh tests/clash_geodata.sh; do sh "$t" || exit 1; done  # �
 | P3：`skip_cert=invalid` 时 doctor 显示“校验已关闭”，实际下载仍严格 | doctor 与下载器共用 `tls_policy.sh` 的有效值计算；无效值提示“已按严格校验处理”，`sub_tls`/`node_tls` 无效值同样告警 |
 | 补充：原生直链配置里 `node_tls=skip` 只替换已有的 `false`，没写字段的节点不会跳过（`.4` 起就存在） | Clash：`tls_yaml_force_skip` 给缺字段的 flow/block 节点补 `skip-cert-verify: true`（带行尾注释或跨行的 flow 节点保持原样）；Sing-Box：`tls_json_force_insecure` 给缺 `insecure` 的 `tls` 块补 `true`（`format` 会省略 `false`，旧替换实际无效） |
 | 附带：BusyBox/uclient 分支此前不发送 UA | 改为 `-U` 传递，并按代理 on/off 各试一次 |
+| 自审附带：无 `curl` 的 Alpine（BusyBox `wget` 不支持 `--no-proxy`）与 OpenWrt（`uclient-fetch` 不支持 `--header`）在 `_upg_check_service_ready` / `start_wait.sh` / `web_json.sh` 会报错回滚或空等 29 秒 | 按实际能力选择 `-Y off` / `--no-proxy`，`uclient-fetch` 无 `--header` 时按无密码响应或 `HTTP error 401` 判定控制器已监听就绪；JSON POST 改用通用 `--post-data` |
 
-- 验证：真实 Alpine 3.21（BusyBox 1.37 wget）与 OpenWrt 23.05.5（uclient-fetch）容器内对 badssl.com 自签/过期证书、有效证书、HTTP/HTTPS 503 逐项实测；真实 Mihomo / Sing-Box 对补写后的原生配置 `-t` / `check` 通过，并用本地自签 Trojan 服务端完成 `node_tls=skip` / `follow`（未标字段与已标跳过）端到端转发验证；新增 `tests/test_tls_policy.sh`。
-- 仍未覆盖：真实 OpenWrt 硬件（防火墙/procd/路由）、真实运行态 `.4/.6 → .7` 服务升级；内核自己拉取的 `type: http` / `remote` 订阅证书仍由内核校验。
+- 验证：真实 Alpine 3.21（BusyBox 1.37 wget）与 OpenWrt 23.05.5（uclient-fetch）容器内对 badssl.com 自签/过期证书、有效证书、HTTP/HTTPS 503 逐项实测，并在容器保守模式下完成 `.4/.6 → .7` 与无 `curl` `.7 → .7` 真实 Mihomo 运行态升级验证；真实 Mihomo / Sing-Box 对补写后的原生配置 `-t` / `check` 通过，并用本地自签 Trojan 服务端完成 `node_tls=skip` / `follow`（未标字段与已标跳过）端到端转发验证；新增 `tests/test_tls_policy.sh`。
+- 仍未覆盖：真实 OpenWrt 硬件（procd/防火墙/路由）、完整 `systemd` 宿主的 `.4/.6 → .7` 运行态服务升级；内核自己拉取的 `type: http` / `remote` 订阅证书仍由内核校验。

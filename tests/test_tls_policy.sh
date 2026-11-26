@@ -316,6 +316,59 @@ node_tls=follow:follow"; do
     [ "$_got" = "${_c##*:}" ] && pass "迁移 [$(echo "${_c%:*}" | tr '\n' ' ')] → node_tls=${_got:-未写}" || fail "迁移 [${_c%:*}] 得到 node_tls=$_got"
 done
 
+echo "== 8. start_wait / _upg_check_service_ready 兼容 BusyBox wget 与 OpenWrt uclient-fetch =="
+SW_BIN="$SANDBOX/swbin"
+mkdir -p "$SW_BIN"
+# 屏蔽宿主机 curl：让 command -v curl 找不到（测试无 curl 的 Alpine/OpenWrt）
+for _tool in sh grep sed awk tr od id cat sleep printf mkdir rm cp mv cmp; do
+    _tp=$(command -v "$_tool" 2>/dev/null) && [ -x "$_tp" ] && ln -sf "$_tp" "$SW_BIN/$_tool"
+done
+# BusyBox wget 替身：带 --no-proxy 报错退出；支持 -Y off 与 --header
+cat >"$SW_BIN/wget" <<'EOF'
+#!/bin/sh
+[ "$1" = --help ] && { echo "Usage: wget [-q] [-T SEC] [-Y on/off] [--header STR] [-O FILE] URL"; exit 1; }
+for a in "$@"; do
+    [ "$a" = --no-proxy ] && { echo "wget: unrecognized option: no-proxy" >&2; exit 1; }
+done
+echo '{"version":"v1.19.17","proxies":{}}'
+exit 0
+EOF
+chmod +x "$SW_BIN/wget"
+_sw_res=$(PATH="$SW_BIN" db_port=9999 secret=s sh -c '. "$1/scripts/libs/start_wait.sh"; echo "$test"' _ "$ROOT")
+[ "$_sw_res" = proxies ] && pass "start_wait：无 curl + BusyBox wget（无 --no-proxy）正常通过" || fail "start_wait BusyBox 失败: $_sw_res"
+
+# OpenWrt uclient-fetch 替身：带 --header 报错退出；支持 -Y off；有 secret 时返回 HTTP error 401
+cat >"$SW_BIN/wget" <<'EOF'
+#!/bin/sh
+[ "$1" = --help ] && { echo "Options: -T N  -Y on/off  --no-proxy  --no-check-certificate"; exit 1; }
+for a in "$@"; do
+    case "$a" in --header*) echo "wget: unrecognized option: $a" >&2; exit 1 ;; esac
+done
+if [ "$UC_MODE" = 401 ]; then
+    echo "HTTP error 401" >&2
+    exit 8
+fi
+echo '{"version":"v1.19.17","proxies":{}}'
+exit 0
+EOF
+chmod +x "$SW_BIN/wget"
+_sw_res=$(PATH="$SW_BIN" UC_MODE=401 db_port=9999 secret=s sh -c '. "$1/scripts/libs/start_wait.sh"; echo "$test"' _ "$ROOT")
+[ "$_sw_res" = proxies ] && pass "start_wait：无 curl + uclient-fetch（无 --header，有 secret 返回 401）不卡 29 秒" || fail "start_wait uclient 401 失败: $_sw_res"
+
+# 构造 ELF 魔数假 CrashCore 测 _upg_check_service_ready
+ELF_DIR="$SANDBOX/elf"
+mkdir -p "$ELF_DIR/configs"
+printf '\177ELF' >"$ELF_DIR/CrashCore"
+printf 'db_port=9999\nsecret=s\n' >"$ELF_DIR/configs/ShellCrash.cfg"
+cat >"$SW_BIN/pidof" <<'EOF'
+#!/bin/sh
+echo 12345
+EOF
+chmod +x "$SW_BIN/pidof"
+PATH="$SW_BIN" UC_MODE=401 CRASHDIR="$ELF_DIR" TMPDIR="$ELF_DIR" USER=nonroot sh -c '. "$1/scripts/libs/set_config.sh"; _upg_check_service_ready' _ "$ROOT" &&
+    pass "_upg_check_service_ready：无 curl + uclient-fetch（有 secret 401）判定就绪" ||
+    fail "_upg_check_service_ready uclient 401 失败"
+
 echo
 if [ "$failures" -gt 0 ]; then
     echo "test_tls_policy: $failures 项失败"

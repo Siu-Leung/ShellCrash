@@ -333,6 +333,11 @@ set_tls_policy() {
             break
             ;;
         1)
+            # 先把节点策略的当前有效值写入配置，避免旧配置（只有 skip_cert）切换项目开关时节点策略被连带改变
+            if [ -z "$node_tls" ]; then
+                node_tls=$(tls_node_mode)
+                setconfig node_tls "$node_tls"
+            fi
             if [ "$skip_cert" = "ON" ]; then
                 skip_cert=OFF
                 setconfig skip_cert OFF
@@ -346,8 +351,6 @@ set_tls_policy() {
                 [ "$confirm" != 1 ] && continue
                 skip_cert=ON
                 setconfig skip_cert ON
-                # 显式保存当前节点策略，避免 node_tls 未设置时随 skip_cert=ON 被兼容逻辑带成"全部跳过"
-                [ -z "$node_tls" ] && node_tls=follow && setconfig node_tls follow
                 msg_alert "\033[33m$SET_SKIP_CERT_ON\033[0m"
             fi
             ;;

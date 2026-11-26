@@ -4,10 +4,31 @@
 # 用途：根据 CrashCore 是否运行，选择代理（raw.githubusercontent.com）或直连（jsdelivr CDN）地址下载文件
 # 参数：$1=本地目标路径 $2=在线地址 $3=输出显示(echooff/echoon) $4=重定向控制(rediroff)
 #       $5=证书策略(skipceroff=强制校验 / skipcerforce=强制跳过 / 其他=按 skip_cert) $6=自定义UA
+#       可选环境：WEBGET_TLS_ERRFILE=<文件>，下载失败且能确认是证书校验失败时写入 "tls"
+#       （curl 60/51/77/83/90/91；GNU wget / uclient-fetch 退出码 5；BusyBox wget 报错含 certificate/x509）
 # 返回：0 成功；1 失败（失败时仅删除本次新建的普通文件，保留原有文件/符号链接/设备文件）
 # 设计说明：代理模式下把 jsdelivr/gh.jwsc 地址映射回 raw 直链，避免 CDN 在代理环境下不可用；
 #           直连模式反之把 raw 映射为 jsdelivr 镜像加速。
 # 去原作者化：两条 sed 映射中的仓库路径统一改为本 fork（Siu-Leung/ShellCrash），映射逻辑保持不变。
+# 判断一次下载失败是否为证书校验失败，是则写标记（仅 sub_webget 使用）
+_webget_mark_tls() {
+    [ -n "$WEBGET_TLS_ERRFILE" ] && echo tls >"$WEBGET_TLS_ERRFILE"
+    return 0
+}
+_webget_curl_tls_rc() {
+    case "$1" in
+    51 | 60 | 77 | 83 | 90 | 91) _webget_mark_tls ;;
+    esac
+    return 0
+}
+_webget_wget_tls_rc() {
+    if [ "$1" = 5 ]; then
+        _webget_mark_tls
+    elif [ -n "$2" ] && [ -s "$2" ] && grep -qiE 'certificate|x509' "$2"; then
+        _webget_mark_tls
+    fi
+    return 0
+}
 webget() (
     if pidof CrashCore >/dev/null; then
         setproxy #设置临时代理，【$1】代表下载目录，【$2】代表在线地址
@@ -41,10 +62,14 @@ webget() (
         fi
         if [ -n "$_ua" ]; then
             wget_proxy on --user-agent "$_ua" $progress $redirect $certificate --timeout=3 -O "$_out_path" "$url" && return 0 #成功则退出否则重试
+            _webget_wget_tls_rc "$?"
             wget_proxy off --user-agent "$_ua" $progress $redirect $certificate --timeout=5 -O "$_out_path" "$_orig_url" && return 0
+            _webget_wget_tls_rc "$?"
         else
             wget_proxy on $progress $redirect $certificate --timeout=3 -O "$_out_path" "$url" && return 0 #成功则退出否则重试
+            _webget_wget_tls_rc "$?"
             wget_proxy off $progress $redirect $certificate --timeout=5 -O "$_out_path" "$_orig_url" && return 0
+            _webget_wget_tls_rc "$?"
         fi
     elif curl --version >/dev/null 2>&1; then
         [ "$4" = "rediroff" ] && redirect='' || redirect='-L'
@@ -81,6 +106,7 @@ webget() (
         rc=$?
         #传输中断时状态码仍可能是200，须同时检查curl退出码
         [ "$rc" = 0 ] && [ "$result" = "200" ] && return 0 #成功则退出否则重试
+        _webget_curl_tls_rc "$rc"
         export https_proxy="" http_proxy="" HTTPS_PROXY="" HTTP_PROXY="" all_proxy="" ALL_PROXY=""
 
         if [ -n "$fsize_raw" ] && [ "$fsize_raw" -gt 204800 ] 2>/dev/null; then
@@ -94,20 +120,38 @@ webget() (
         fi
         rc=$?
         [ "$rc" = 0 ] && [ "$result" = "200" ] && return 0
+        _webget_curl_tls_rc "$rc"
     elif ckcmd wget; then
         [ "$3" = "echooff" ] && progress='-q'
-        # BusyBox wget / OpenWrt uclient-fetch：支持 --no-check-certificate 时同样遵循证书策略
+        # BusyBox wget / OpenWrt uclient-fetch：按实际能力判断 --no-check-certificate（不只看帮助文案）
         certificate=''
         if [ "$5" = "skipcerforce" ] || { [ "$5" != "skipceroff" ] && [ "$skip_cert" = "ON" ]; }; then
-            wget --help 2>&1 | grep -q 'no-check-certificate' && certificate='--no-check-certificate'
+            wget_nocheck_supported && certificate='--no-check-certificate'
         fi
-        wget_proxy on $progress $certificate -O "$_out_path" "$url" && return 0 #成功则退出否则重试
-        wget_proxy off $progress $certificate -O "$_out_path" "$_orig_url" && return 0
+        set --
+        [ -n "$_ua" ] && set -- -U "$_ua"
+        # 需要判断证书错误时暂存 stderr（BusyBox 证书失败退出码只有 1，要看报错文字），结束后原样输出
+        _werr=''
+        [ -n "$WEBGET_TLS_ERRFILE" ] && _werr="$WEBGET_TLS_ERRFILE.stderr"
+        for _wmode in on off; do
+            [ "$_wmode" = on ] && _wurl="$url" || _wurl="$_orig_url"
+            if [ -n "$_werr" ]; then
+                wget_proxy "$_wmode" "$@" $progress $certificate -O "$_out_path" "$_wurl" 2>"$_werr"
+                _wrc=$?
+                cat "$_werr" >&2
+            else
+                wget_proxy "$_wmode" "$@" $progress $certificate -O "$_out_path" "$_wurl"
+                _wrc=$?
+            fi
+            [ "$_wrc" = 0 ] && { [ -n "$_werr" ] && rm -f "$_werr"; return 0; }
+            _webget_wget_tls_rc "$_wrc" "$_werr"
+        done
+        [ -n "$_werr" ] && rm -f "$_werr"
     else
         echo "No Curl or Wget！！！"
         return 1
     fi
     #下载失败：只删除本次新建的普通文件；原有文件、符号链接、设备文件(如/dev/null)一律保留
-    [ -z "$target_existed" ] && [ -f "$1" ] && [ ! -L "$1" ] && rm -f -- "$1"
+    [ -z "$target_existed" ] && [ -f "$_out_path" ] && [ ! -L "$_out_path" ] && rm -f -- "$_out_path"
     return 1 #不透传wget的4、8等退出码，调用方以返回值1判定失败
 )

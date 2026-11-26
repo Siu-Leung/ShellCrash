@@ -20,7 +20,7 @@ webget() (
 		curl $cert_flag -fsSl --connect-timeout 3 --max-time "${2:-35}" "$1" 2>/dev/null
 	else
 		wcert=""
-		[ "$skip_cert" = "ON" ] && wget --help 2>&1 | grep -q 'no-check-certificate' && wcert="--no-check-certificate"
+		[ "$skip_cert" = "ON" ] && { wget --help 2>&1 | grep -q 'no-check-certificate' || ! wget --no-check-certificate --help 2>&1 | grep -qiE 'option[^a-z]*no-check-certificate'; } && wcert="--no-check-certificate"
 		wget_proxy on -q $wcert --timeout="${2:-35}" -O - "$1"
 	fi
 )
@@ -32,7 +32,7 @@ webpost() (
 		curl $cert_flag -fsSl -X POST --connect-timeout 3 --max-time 10 -H "Content-Type: application/json; charset=utf-8" "$1" -d "$2" >/dev/null 2>&1
 	else
 		wcert=""
-		[ "$skip_cert" = "ON" ] && wget --help 2>&1 | grep -q 'no-check-certificate' && wcert="--no-check-certificate"
+		[ "$skip_cert" = "ON" ] && { wget --help 2>&1 | grep -q 'no-check-certificate' || ! wget --no-check-certificate --help 2>&1 | grep -qiE 'option[^a-z]*no-check-certificate'; } && wcert="--no-check-certificate"
 		wget_proxy on -q $wcert --timeout=5 --method=POST --header="Content-Type: application/json; charset=utf-8" --body-data="$2" -O /dev/null "$1" >/dev/null 2>&1
 	fi
 )

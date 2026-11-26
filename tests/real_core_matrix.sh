@@ -381,4 +381,88 @@ for _nt in skip verify; do
     echo "  PASS meta + singboxr node_tls=$_nt"
 done
 
+echo "=== 8. node_tls=skip: 原生直链配置里没写 skip-cert-verify / insecure 的节点也被补上，且真实内核接受 ==="
+for _nt in skip follow; do
+    # Mihomo 原生配置：flow + block 两种节点，都没写 skip-cert-verify
+    SB="$WORK/meta_native_$_nt"
+    setup_sandbox "$SB" meta
+    printf 'node_tls=%s\n' "$_nt" >>"$SB/crash/configs/ShellCrash.cfg"
+    cat >"$SB/crash/yamls/config.yaml" <<'EOF'
+proxies:
+  - {name: N-flow, type: trojan, server: 198.51.100.21, port: 443, password: p, sni: example.com}
+  - name: N-block
+    type: vless
+    server: 198.51.100.22
+    port: 443
+    uuid: 0b5c7a5e-5d7e-4b8f-9b1f-0d6c3b7f2a11
+    tls: true
+    servername: example.com
+proxy-groups:
+  - name: PROXY
+    type: select
+    proxies:
+      - N-flow
+      - N-block
+rules:
+  - MATCH,PROXY
+EOF
+    (
+        export CRASHDIR="$SB/crash" TMPDIR="$SB/tmp" BINDIR="$SB/crash"
+        . "$CRASHDIR/libs/get_config.sh"
+        . "$CRASHDIR/libs/set_config.sh"
+        . "$CRASHDIR/libs/logger.sh"
+        . "$CRASHDIR/libs/check_target.sh"
+        . "$CRASHDIR/starts/clash_modify.sh"
+        dns_mod=mix
+        modify_yaml >/dev/null || exit 1
+        _n=$(grep -c 'skip-cert-verify: true' "$TMPDIR/config.yaml")
+        if [ "$_nt" = skip ]; then
+            [ "$_n" -ge 2 ] || { echo "  FAIL meta native node_tls=skip filled $_n/2" >&2; exit 1; }
+        else
+            [ "$_n" = 0 ] || { echo "  FAIL meta native node_tls=follow modified nodes" >&2; exit 1; }
+        fi
+        "$TMPDIR/CrashCore" -t -d "$BINDIR" -f "$TMPDIR/config.yaml" >/dev/null || exit 1
+    ) || exit 1
+    rm -rf "$SB"
+    # Stock Sing-Box 原生配置：tls 块没写 insecure
+    SB="$WORK/sb_native_$_nt"
+    setup_sandbox "$SB" singbox
+    printf 'node_tls=%s\n' "$_nt" >>"$SB/crash/configs/ShellCrash.cfg"
+    cat >"$SB/crash/jsons/config.json" <<'EOF'
+{
+  "outbounds": [
+    {
+      "type": "trojan",
+      "tag": "N-1",
+      "server": "198.51.100.31",
+      "server_port": 443,
+      "password": "p",
+      "tls": { "enabled": true, "server_name": "example.com" }
+    },
+    { "type": "selector", "tag": "PROXY", "outbounds": ["N-1", "DIRECT"] }
+  ],
+  "route": { "rules": [], "final": "PROXY" }
+}
+EOF
+    (
+        export CRASHDIR="$SB/crash" TMPDIR="$SB/tmp" BINDIR="$SB/crash"
+        . "$CRASHDIR/libs/get_config.sh"
+        . "$CRASHDIR/libs/set_config.sh"
+        . "$CRASHDIR/libs/logger.sh"
+        . "$CRASHDIR/libs/check_target.sh"
+        dns_mod=mix
+        rm -rf "$TMPDIR/jsons" && mkdir -p "$TMPDIR/jsons"
+        . "$CRASHDIR/starts/singbox_modify.sh"
+        modify_json >/dev/null || exit 1
+        if [ "$_nt" = skip ]; then
+            grep -q '"insecure": true' "$TMPDIR/jsons/outbounds.json" || { echo "  FAIL singbox native node_tls=skip insecure missing" >&2; exit 1; }
+        else
+            ! grep -q '"insecure": true' "$TMPDIR/jsons/outbounds.json" || { echo "  FAIL singbox native node_tls=follow modified" >&2; exit 1; }
+        fi
+        "$TMPDIR/CrashCore" check -D "$BINDIR" -C "$TMPDIR/jsons" || exit 1
+    ) || exit 1
+    rm -rf "$SB"
+    echo "  PASS meta + singbox native node_tls=$_nt"
+done
+
 echo "ALL REAL-BINARY CHECKS PASSED!"

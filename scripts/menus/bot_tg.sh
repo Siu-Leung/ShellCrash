@@ -36,7 +36,7 @@ web_download() (
         curl $_cert -fsSl --connect-timeout 5 --max-time 120 "$1" -o "$2"
     else
         _cert=''
-        [ "$skip_cert" = "ON" ] && wget --help 2>&1 | grep -q 'no-check-certificate' && _cert='--no-check-certificate'
+        [ "$skip_cert" = "ON" ] && wget_nocheck_supported && _cert='--no-check-certificate'
         wget_proxy on -q $_cert --timeout=30 -O "$2" "$1"
     fi
 )

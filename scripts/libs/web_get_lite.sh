@@ -9,7 +9,7 @@ web_get_lite() (
         curl $_cert -sSl --connect-timeout 3 --max-time "$_timeout" "$1" 2>/dev/null
     else
         _cert=''
-        [ "$skip_cert" = "ON" ] && wget --help 2>&1 | grep -q 'no-check-certificate' && _cert='--no-check-certificate'
+        [ "$skip_cert" = "ON" ] && wget_nocheck_supported && _cert='--no-check-certificate'
         [ -z "$2" ] && _wproxy=on || _wproxy=off
         wget_proxy "$_wproxy" -q $_cert --timeout="$_timeout" -O - "$1"
     fi

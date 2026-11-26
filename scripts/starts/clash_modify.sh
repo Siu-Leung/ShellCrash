@@ -195,6 +195,8 @@ split_and_customize_yaml_parts() {
     case "$(tls_node_mode)" in
     skip)
         sed -i 's/skip-cert-verify: false/skip-cert-verify: true/g' "$TMPDIR"/proxies.yaml "$TMPDIR"/proxy-providers.yaml 2>/dev/null
+        # 没写 skip-cert-verify 的节点也补上 true，"全部跳过"才名副其实
+        type tls_yaml_force_skip >/dev/null 2>&1 && tls_yaml_force_skip "$TMPDIR"/proxies.yaml
         ;;
     verify)
         sed -i 's/skip-cert-verify: true/skip-cert-verify: false/g' "$TMPDIR"/proxies.yaml "$TMPDIR"/proxy-providers.yaml 2>/dev/null

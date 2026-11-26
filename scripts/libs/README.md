@@ -15,8 +15,9 @@
 - **配置防注入**：写入用户输入类配置必须使用 `set_config.sh` 提供的 `setconfig_quote`，普通受控键值使用 `setconfig`（内置键名标识符校验、`\r\n` 剥离与原子替换写入）。
 - **TLS 校验（三项分开，见 `tls_policy.sh`）**：
   - 项目文件下载（内核/规则/面板/脚本/TG）：`skip_cert`，默认 `OFF` 严格校验，仅显式 `ON` 跳过。
-  - 订阅拉取：`sub_tls`，默认 `auto`（先严格校验，失败后跳过证书重试一次并记日志，只记主机名不记 token）；`strict` 只校验；`skip` 始终跳过。订阅下载统一走 `sub_webget`。
-  - 节点 TLS：`node_tls`，默认 `follow`（不改写节点自身的 `skip-cert-verify`/`insecure`）；`skip` 全部跳过；`verify` 全部校验。旧配置只有 `skip_cert=ON` 时兼容为 `skip`。
+  - 订阅拉取：`sub_tls`，默认 `auto`（先严格校验，只有确认是 HTTPS 证书校验失败才跳过证书重试一次并记日志，只记主机名不记 token；普通网络/HTTP 错误与非 HTTPS 地址不降级）；`strict` 只校验；`skip` 始终跳过。订阅下载统一走 `sub_webget`，`webget` 通过 `WEBGET_TLS_ERRFILE` 回报证书失败。
+  - 节点 TLS：`node_tls`，默认 `follow`（不改写节点自身的 `skip-cert-verify`/`insecure`）；`skip` 全部跳过（缺字段的节点会补写）；`verify` 全部校验。旧配置只有 `skip_cert=ON` 时兼容为 `skip`，并在升级/菜单切换时固化写入。
+  - `--no-check-certificate` 是否可用统一用 `wget_nocheck_supported` 判断，不能只看 `wget --help`（Alpine BusyBox 帮助不列但可用）。
 - **仓库分支分流**：`web_get_bin.sh` 自动将 `bin/*` 路由至 `Siu-Leung/ShellCrash@update`，将 `public/*` 与 `rules/*` 路由至 `Siu-Leung/ShellCrash@dev`（同时兼容首次安装 `url_id` 为空的场景）。
 - **子 Shell 隔离与下载约定**：
   - `webget`、`web_get_lite` 与 `web_json_post` 在子 Shell 中执行，临时代理和内部变量不会污染调用方环境。

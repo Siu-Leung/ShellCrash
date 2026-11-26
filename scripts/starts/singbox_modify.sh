@@ -542,6 +542,8 @@ normalize_and_finalize_jsons() { #修饰文件
     case "$(tls_node_mode)" in
     skip)
         sed -i 's/"insecure": false/"insecure": true/g' "$TMPDIR"/jsons/outbounds.json "$TMPDIR"/jsons/providers.json 2>/dev/null
+        # CrashCore format 会省略 "insecure": false，所以必须给没写的 tls 对象补上 true
+        type tls_json_force_insecure >/dev/null 2>&1 && tls_json_force_insecure "$TMPDIR"/jsons/outbounds.json
         ;;
     verify)
         sed -i 's/"insecure": true/"insecure": false/g' "$TMPDIR"/jsons/outbounds.json "$TMPDIR"/jsons/providers.json 2>/dev/null

@@ -130,7 +130,11 @@ skip_cert=OFF
 WG_LOG="$SANDBOX/wg.log"
 webget() {
     echo "$5" >>"$WG_LOG"
-    [ "$5" = "skipcerforce" ] || return 1
+    if [ "$5" != "skipcerforce" ]; then
+        # 模拟下载器确认是证书校验失败
+        [ -n "$WEBGET_TLS_ERRFILE" ] && echo tls >"$WEBGET_TLS_ERRFILE"
+        return 1
+    fi
     printf '%s' "$RAW_URIS" | base64 >"$1"
 }
 : >"$WG_LOG"; sub_tls=auto

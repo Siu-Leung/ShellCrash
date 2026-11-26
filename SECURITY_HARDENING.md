@@ -13,7 +13,7 @@
 | **自建 Telegram Bot 与推送** | 支持公共机器人中转；`bot_tg.sh` 缺 `TG_CHATID` 启动校验、未限 `limit=1` 且贪婪提取 `"id"` 可被正文伪造绕过；配置恢复未防 Tar-Slip；`tools/tg_bot.sh` 无 ChatID 校验 | 移除公共机器人中转与全部推广/引流链接，仅直连 `api.telegram.org/bot<自建TOKEN>`；强制数字型 `TG_CHATID`（含负数群组）与非空 `TG_TOKEN`；固定 `limit=1` 并严格提取消息头 `chat.id`；`_safe_tar_check` 拦截 `../`、绝对路径、符号链接、硬链接及设备节点 |
 | **全链路自主供应链** | 依赖外部下载源、第三方规则集仓库、上游 Docker 镜像；新装空 `url_id` 时 `bin/*` 误拉 `@dev`；CI 过宽 `write-all` 权限与 `${file#bin/}` 缓存刷新失效 | 全仓统一指向 `Siu-Leung/ShellCrash`（脚本走 `dev`，内核/面板/GeoData/规则集走 `update`）；`web_get_bin.sh` 修复新装分支分流；全部 14 份规则模板与 6 个面板 URL 迁至本仓库 `@update`；Docker 改为本地自建 `shellcrash:local`；CI 全部收敛为最小权限并修复缓存刷新、版本更新与输入隔离 |
 | **DNS / Sing-Box 与逻辑修复** | Sing-Box 私有 DoH 丢 path、`dns_protect=OFF` 未改 `dns.json` `final`、`source_ip`/`source_port` 字段不规范、密码含 `:` 被截断、`sb_inbounds.sh` 尾部多余逗号；`8_tools.sh` `stop_iptables` 误用 `iptables` 清理 IPv6；`fw_nftables.sh` `$$vm_ipv4` 笔误 | 逐项修复上述 JSON/YAML 语法与转义、IPv6 防火墙清理、`check_geo.sh` `find` 引号、`init.sh` shebang 锚定、`fw_filter.sh` `add_ip` 目标文件、`9_upgrade.sh` 退出码与正则等全部缺陷 |
-| **干净打包与离线测试** | 预打包 `ShellCrash.tar.gz` 混入 `README.md` 且容易残留过期文件 | 重写 `sync_pkg.sh` 从零干净构建 `ShellCrash.tar.gz`（保留 `cn_ip.txt`/`cn_ipv6.txt`，剔除 `README.md`）；配套 15 套离线回归测试覆盖全部安全与逻辑不变量 |
+| **干净打包与离线测试** | 预打包 `ShellCrash.tar.gz` 混入 `README.md` 且容易残留过期文件 | 重写 `sync_pkg.sh` 从零干净构建 `ShellCrash.tar.gz`（保留 `cn_ip.txt`/`cn_ipv6.txt`，剔除 `README.md`）；配套 16 套离线回归测试覆盖全部安全与逻辑不变量 |
 
 ## V2 全仓逐行深度审计记录
 
@@ -80,7 +80,7 @@
 
 ```sh
 sh sync_pkg.sh                                                       # 干净重建 ShellCrash.tar.gz
-for t in tests/test_*.sh tests/clash_geodata.sh; do sh "$t" || exit 1; done  # 运行全部 15 套离线回归测试
+for t in tests/test_*.sh tests/clash_geodata.sh; do sh "$t" || exit 1; done  # 运行全部 16 套离线回归测试
 ```
 
 所有测试脚本均兼容无 `ripgrep`（自动回退至标准 `grep -E`）的纯 Linux 环境。
@@ -101,3 +101,17 @@ for t in tests/test_*.sh tests/clash_geodata.sh; do sh "$t" || exit 1; done  # �
 - BusyBox wget / OpenWrt uclient-fetch 分支也遵循证书策略。
 - 菜单：功能设置 → 4) 证书校验（文件/订阅/节点）。
 - 已知限制：内核自己拉取的 `type: http` / `remote` 订阅（非本地转换模式）由内核校验证书，脚本无法放行，与原项目相同。
+
+## 1.9.7-hardened.7：独立复测问题修复（BusyBox/uclient、降级判定、节点策略固化）
+
+| 问题 | 修复 |
+|---|---|
+| P1：Alpine BusyBox 1.37 `wget --help` 不列 `--no-check-certificate` 但实际可用，脚本只看帮助文案，`sub_tls=auto/skip` 对自签订阅失效 | 新增 `wget_nocheck_supported`（`set_proxy.sh`）：帮助里有就用；没有时实测该选项，只有明确报 `unrecognized option ... no-check-certificate` 才判定不支持。`web_get.sh` / `web_get_lite.sh` / `web_json.sh` / `bot_tg.sh` / `tools/tg_bot.sh` 统一使用 |
+| P1：旧配置只有 `skip_cert=ON`（有效节点策略为 `skip`），在菜单里切换项目文件开关会把节点策略悄悄变成 `follow` | 菜单切换前先把当前有效 `node_tls` 写入配置；`init.sh` 升级时对“`skip_cert=ON` 且无 `node_tls`”的旧配置固化 `node_tls=skip` |
+| P2：`sub_tls=auto` 把普通 HTTP 错误（如 `http://` 503）当证书错误降级 | 只在确认是 HTTPS 证书校验失败时降级：curl 退出码 51/60/77/83/90/91，GNU wget 退出码 5，BusyBox/uclient 报错含 `certificate`/`x509`；非 `https://` 地址只拉一次，不存在降级 |
+| P3：`skip_cert=invalid` 时 doctor 显示“校验已关闭”，实际下载仍严格 | doctor 与下载器共用 `tls_policy.sh` 的有效值计算；无效值提示“已按严格校验处理”，`sub_tls`/`node_tls` 无效值同样告警 |
+| 补充：原生直链配置里 `node_tls=skip` 只替换已有的 `false`，没写字段的节点不会跳过（`.4` 起就存在） | Clash：`tls_yaml_force_skip` 给缺字段的 flow/block 节点补 `skip-cert-verify: true`（带行尾注释或跨行的 flow 节点保持原样）；Sing-Box：`tls_json_force_insecure` 给缺 `insecure` 的 `tls` 块补 `true`（`format` 会省略 `false`，旧替换实际无效） |
+| 附带：BusyBox/uclient 分支此前不发送 UA | 改为 `-U` 传递，并按代理 on/off 各试一次 |
+
+- 验证：真实 Alpine 3.21（BusyBox 1.37 wget）与 OpenWrt 23.05.5（uclient-fetch）容器内对 badssl.com 自签/过期证书、有效证书、HTTP/HTTPS 503 逐项实测；真实 Mihomo / Sing-Box 对补写后的原生配置 `-t` / `check` 通过，并用本地自签 Trojan 服务端完成 `node_tls=skip` / `follow`（未标字段与已标跳过）端到端转发验证；新增 `tests/test_tls_policy.sh`。
+- 仍未覆盖：真实 OpenWrt 硬件（防火墙/procd/路由）、真实运行态 `.4/.6 → .7` 服务升级；内核自己拉取的 `type: http` / `remote` 订阅证书仍由内核校验。

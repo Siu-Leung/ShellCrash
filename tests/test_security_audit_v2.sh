@@ -234,6 +234,14 @@ grep -Fq 'skip-cert-verify: true' "$SB4/tmp/proxies.yaml" && ok "旧配置 skip_
 _run_4a ON follow
 grep -Fq 'skip-cert-verify: false' "$SB4/tmp/proxies.yaml" && ok "node_tls=follow 时不受 skip_cert 影响，保持订阅原值" || bad "node_tls=follow 被 skip_cert 改写"
 sed -i 's/skip-cert-verify: false/skip-cert-verify: true/' "$SB4/core.yaml"
+# 节点完全没写 skip-cert-verify：node_tls=skip 必须补上 true；follow 不得补写
+cp "$SB4/core.yaml" "$SB4/core.yaml.bak4a"
+sed -i 's/, skip-cert-verify: [a-z]*//' "$SB4/core.yaml"
+_run_4a OFF skip
+grep -Fq 'skip-cert-verify: true' "$SB4/tmp/proxies.yaml" && ok "node_tls=skip 给没写字段的节点补上 skip-cert-verify: true" || bad "node_tls=skip 未补写缺失字段"
+_run_4a OFF follow
+! grep -Fq 'skip-cert-verify' "$SB4/tmp/proxies.yaml" && ok "node_tls=follow 不补写缺失字段" || bad "node_tls=follow 改动了缺失字段的节点"
+mv -f "$SB4/core.yaml.bak4a" "$SB4/core.yaml"
 
 # 4b. Sing-Box 纯净模式全入站收敛至 127.0.0.1 + 含冒号/引号密码 JSON 合法性
 _sb_auth='admin:p@ss:w"rd\1'

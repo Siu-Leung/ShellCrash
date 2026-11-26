@@ -117,7 +117,7 @@ Trigger these workflows under GitHub **Actions** (`dev` branch) to keep all bina
 
 ## Development & Regression Testing
 
-See [SECURITY_HARDENING.md](SECURITY_HARDENING.md) for the complete security audit log. After editing `scripts/`, `public/`, or `rules/`, cleanly rebuild the package and run all 15 offline regression suites:
+See [SECURITY_HARDENING.md](SECURITY_HARDENING.md) for the complete security audit log. After editing `scripts/`, `public/`, or `rules/`, cleanly rebuild the package and run all 16 offline regression suites:
 
 ```sh
 sh sync_pkg.sh

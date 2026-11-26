@@ -114,6 +114,11 @@ for file in start.sh starts/bfstart.sh starts/afstart.sh starts/fw_stop.sh start
 done
 [ -s "$CRASHDIR"/version ] && version=$(head -n 1 "$CRASHDIR"/version | tr -d '\r\n ')
 [ -n "$version" ] && setconfig versionsh_l "$version"
+#证书策略迁移：旧配置只有 skip_cert=ON（原项目默认）且没有 node_tls 时，固化 node_tls=skip，
+#保证升级后节点行为不变，之后单独修改"项目文件下载"开关也不会连带改变节点策略
+if grep -qE "^skip_cert=['\"]?ON['\"]?\$" "$CFG_PATH" 2>/dev/null && ! grep -q '^node_tls=' "$CFG_PATH" 2>/dev/null; then
+    setconfig node_tls skip
+fi
 #生成用于执行启动服务的变量文件
 DIRECTORIES_FILE="$CRASHDIR"/configs/directories.env
 COMMAND_FILE="$CRASHDIR"/configs/command.env

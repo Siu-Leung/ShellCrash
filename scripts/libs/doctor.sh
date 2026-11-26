@@ -46,19 +46,27 @@ run_doctor() {
     _doc_info "代理模式: redir_mod=${redir_mod:-unset} | firewall_area=${firewall_area:-unset} | firewall_mod=${firewall_mod:-unset} | dns_mod=${dns_mod:-unset}"
 
     # 3. 安全策略与监听边界
-    if [ "${skip_cert:-OFF}" = "OFF" ]; then
-        _doc_ok "项目文件下载证书校验已开启 (skip_cert=OFF)"
-    else
-        _doc_warn "项目文件下载证书校验已关闭 (skip_cert=$skip_cert)，存在中间人风险"
-    fi
-    case "${sub_tls:-auto}" in
+    # 与下载器共用同一套有效值计算（tls_policy.sh 只有纯函数，只读安全）
+    [ -f "$CRASHDIR/libs/tls_policy.sh" ] && . "$CRASHDIR/libs/tls_policy.sh"
+    case "$skip_cert" in
+    "" | OFF) _doc_ok "项目文件下载证书校验已开启 (skip_cert=${skip_cert:-OFF})" ;;
+    ON) _doc_warn "项目文件下载证书校验已关闭 (skip_cert=ON)，存在中间人风险" ;;
+    *) _doc_warn "skip_cert=$skip_cert 不是有效值（ON/OFF），已按严格校验处理" ;;
+    esac
+    case "$sub_tls" in
+    "" | auto | strict | skip) ;;
+    *) _doc_warn "sub_tls=$sub_tls 不是有效值（auto/strict/skip），已按 auto 处理" ;;
+    esac
+    case "$(tls_sub_mode 2>/dev/null)" in
     strict) _doc_ok "订阅拉取：严格校验 (sub_tls=strict)" ;;
     skip) _doc_warn "订阅拉取：始终跳过证书 (sub_tls=skip)" ;;
-    *) _doc_info "订阅拉取：自动 (sub_tls=auto，证书错误时自动跳过并记日志)" ;;
+    *) _doc_info "订阅拉取：自动 (sub_tls=auto，仅确认是 HTTPS 证书错误时跳过并记日志)" ;;
     esac
-    _doc_node_tls=$node_tls
-    [ -z "$_doc_node_tls" ] && { [ "$skip_cert" = "ON" ] && _doc_node_tls=skip || _doc_node_tls=follow; }
-    case "$_doc_node_tls" in
+    case "$node_tls" in
+    "" | follow | skip | verify) ;;
+    *) _doc_warn "node_tls=$node_tls 不是有效值（follow/skip/verify），已按兼容规则处理" ;;
+    esac
+    case "$(tls_node_mode 2>/dev/null)" in
     verify) _doc_ok "节点证书：全部校验 (node_tls=verify)" ;;
     skip) _doc_warn "节点证书：全部跳过 (node_tls=skip)" ;;
     *) _doc_info "节点证书：跟随订阅 (node_tls=follow)" ;;

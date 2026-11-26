@@ -73,6 +73,7 @@ fi
 if [ -f /etc/rc.common -a "$(cat /proc/1/comm 2>/dev/null)" = "procd" ]; then
     #设为init.d方式启动
     cp -f "$CRASHDIR"/starts/shellcrash.procd /etc/init.d/shellcrash
+    sed -i "s%/etc/ShellCrash%$CRASHDIR%g" /etc/init.d/shellcrash 2>/dev/null
     chmod 755 /etc/init.d/shellcrash
 elif [ -n "$sysdir" ] && { [ "$(id -u 2>/dev/null)" = "0" ] || [ "$USER" = "root" ]; } && [ "$(cat /proc/1/comm 2>/dev/null)" = "systemd" ]; then
     #创建shellcrash用户
@@ -93,6 +94,7 @@ elif [ -n "$sysdir" ] && { [ "$(id -u 2>/dev/null)" = "0" ] || [ "$USER" = "root
 elif rc-status -r >/dev/null 2>&1; then
     #设为openrc方式启动
     mv -f "$CRASHDIR"/starts/shellcrash.openrc /etc/init.d/shellcrash
+    sed -i "s%/etc/ShellCrash%$CRASHDIR%g" /etc/init.d/shellcrash 2>/dev/null
     chmod 755 /etc/init.d/shellcrash
     rm -rf "$CRASHDIR"/starts/shellcrash.procd
 else

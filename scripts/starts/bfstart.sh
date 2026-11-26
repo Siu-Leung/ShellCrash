@@ -159,7 +159,7 @@ fi
         useradd shellcrash -u 7890 2>/dev/null
         sed -Ei 's/^(shellcrash:[^:]*:)7890:7890/\10:7890/' /etc/passwd
     else
-        echo "shellcrash:x:0:7890:::" >>/etc/passwd
+        echo "shellcrash:x:0:7890::/home/shellcrash:/bin/sh" >>/etc/passwd
     fi
 }
 #加载系统内核组件

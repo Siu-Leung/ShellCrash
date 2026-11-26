@@ -23,6 +23,14 @@ echo "=== Core Versions ==="
 "$CORES/singbox/CrashCore" version | head -n 1 || exit 1
 "$CORES/singboxr/CrashCore" version | head -n 1 || exit 1
 
+if [ ! -f "$CORES/geo/Country.mmdb" ] || [ ! -f "$CORES/geo/cn.mrs" ] || [ ! -f "$CORES/geo/cn.srs" ] || [ ! -f "$CORES/geo/cnip.srs" ]; then
+    echo "  [INFO] $CORES/geo/* incomplete; skipping optional local geodata staging"
+fi
+
+copy_geo_if_present() {
+    [ -f "$1" ] && cp -f "$1" "$2" || true
+}
+
 setup_sandbox() {
     _sb="$1"
     _core="$2"
@@ -34,10 +42,10 @@ setup_sandbox() {
     mkdir -p "$_sb/crash/configs" "$_sb/crash/yamls" "$_sb/crash/jsons" "$_sb/crash/providers" "$_sb/crash/ruleset/mrs" "$_sb/crash/ruleset/srs"
     cp -f "$REPO/public/fake_ip_filter.list" "$_sb/crash/configs/fake_ip_filter.list"
     cp -f "$REPO/public/servers.list" "$_sb/crash/configs/servers_chs.list" 2>/dev/null || true
-    cp -f "$CORES/geo/Country.mmdb" "$_sb/crash/Country.mmdb"
-    cp -f "$CORES/geo/cn.mrs" "$_sb/crash/ruleset/cn.mrs"
-    cp -f "$CORES/geo/cn.srs" "$_sb/crash/ruleset/cn.srs"
-    cp -f "$CORES/geo/cnip.srs" "$_sb/crash/ruleset/cnip.srs"
+    copy_geo_if_present "$CORES/geo/Country.mmdb" "$_sb/crash/Country.mmdb"
+    copy_geo_if_present "$CORES/geo/cn.mrs" "$_sb/crash/ruleset/cn.mrs"
+    copy_geo_if_present "$CORES/geo/cn.srs" "$_sb/crash/ruleset/cn.srs"
+    copy_geo_if_present "$CORES/geo/cnip.srs" "$_sb/crash/ruleset/cnip.srs"
     ln -sf "$CORES/$_core/CrashCore" "$_sb/tmp/CrashCore"
     cat > "$_sb/crash/configs/directories.env" <<EOF
 TMPDIR=$_sb/tmp
@@ -92,7 +100,7 @@ setup_sandbox "$SB" meta
 mkdir -p "$SB/subs"
 for _r in "$REPO"/rules/clash_providers/*.yaml; do
     for _rf in $(grep -oE 'ruleset/[^"[:space:]]+\.mrs' "$_r" 2>/dev/null | sort -u); do
-        cp -f "$CORES/geo/cn.mrs" "$SB/crash/$_rf"
+        copy_geo_if_present "$CORES/geo/cn.mrs" "$SB/crash/$_rf"
     done
 done
 cat > "$SB/subs/uri.txt" <<'EOF'
@@ -180,7 +188,7 @@ for filter_case in none inc exc both; do
     mkdir -p "$SB/subs"
     for _r in "$REPO"/rules/singbox_providers/*.json; do
         for _rf in $(grep -oE 'ruleset/[^"[:space:]]+\.srs' "$_r" 2>/dev/null | sort -u); do
-            cp -f "$CORES/geo/cn.srs" "$SB/crash/$_rf"
+            copy_geo_if_present "$CORES/geo/cn.srs" "$SB/crash/$_rf"
         done
     done
     cat > "$SB/subs/uri.txt" <<'EOF'
@@ -237,7 +245,7 @@ SB="$WORK/sbr_json_cache"
 setup_sandbox "$SB" singboxr
 for _r in "$REPO"/rules/singbox_providers/*.json; do
     for _rf in $(grep -oE 'ruleset/[^"[:space:]]+\.srs' "$_r" 2>/dev/null | sort -u); do
-        cp -f "$CORES/geo/cn.srs" "$SB/crash/$_rf"
+        copy_geo_if_present "$CORES/geo/cn.srs" "$SB/crash/$_rf"
     done
 done
 cat > "$SB/crash/providers/sub_1.json" <<'EOF'
@@ -325,7 +333,7 @@ for _nt in skip verify; do
     mkdir -p "$SB/subs"
     for _r in "$REPO"/rules/clash_providers/*.yaml; do
         for _rf in $(grep -oE 'ruleset/[^"[:space:]]+\.mrs' "$_r" 2>/dev/null | sort -u); do
-            cp -f "$CORES/geo/cn.mrs" "$SB/crash/$_rf"
+            copy_geo_if_present "$CORES/geo/cn.mrs" "$SB/crash/$_rf"
         done
     done
     printf 'trojan://secretpass@198.51.100.11:443?sni=example.com#SG-Node-02\n' >"$SB/subs/uri.txt"
@@ -354,7 +362,7 @@ for _nt in skip verify; do
     mkdir -p "$SB/subs"
     for _r in "$REPO"/rules/singbox_providers/*.json; do
         for _rf in $(grep -oE 'ruleset/[^"[:space:]]+\.srs' "$_r" 2>/dev/null | sort -u); do
-            cp -f "$CORES/geo/cn.srs" "$SB/crash/$_rf"
+            copy_geo_if_present "$CORES/geo/cn.srs" "$SB/crash/$_rf"
         done
     done
     printf 'trojan://secretpass@198.51.100.11:443?sni=example.com#SG-Node-02\n' >"$SB/subs/uri.txt"

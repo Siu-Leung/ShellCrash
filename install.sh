@@ -42,19 +42,23 @@ webget() {
         else
             result=""
         fi
-    else
+    elif ckcmd wget; then
+        progress=''
         redirect=''
         certificate=''
-        timeout=''
-        if wget --version >/dev/null 2>&1; then
+        if wget --help 2>&1 | grep -q 'show-progress'; then
             [ "$3" = "echooff" ] && progress='-q' || progress='-q --show-progress'
-            [ "$4" = "rediroff" ] && redirect='--max-redirect=0'
-            [ "$SKIP_CERT" = "1" ] && certificate='--no-check-certificate'
-            timeout='--timeout=5'
+        fi
+        [ "$4" = "rediroff" ] && wget --help 2>&1 | grep -q 'max-redirect' && redirect='--max-redirect=0'
+        if [ "$SKIP_CERT" = "1" ]; then
+            if wget --help 2>&1 | grep -q 'no-check-certificate' || \
+               ! wget --no-check-certificate --help 2>&1 | grep -qiE 'option[^a-z]*no-check-certificate'; then
+                certificate='--no-check-certificate'
+            fi
         fi
         [ "$3" = "echoon" ] && progress=''
         [ "$3" = "echooff" ] && progress='-q'
-        wget $progress $redirect $certificate $timeout -O "$1" "$2"
+        wget $progress $redirect $certificate -T 5 -O "$1" "$2"
         [ $? -eq 0 ] && result="200"
     fi
 }
@@ -110,7 +114,7 @@ set_alias() {
     done
 }
 gettar() {
-    tar_tmp=$(mktemp /tmp/ShellCrash.tar.gz.XXXXXX 2>/dev/null || echo "/tmp/ShellCrash.tar.gz.$$")
+    tar_tmp=$(mktemp "${TMPDIR:-/tmp}/ShellCrash.tar.gz.XXXXXX" 2>/dev/null || echo "${TMPDIR:-/tmp}/ShellCrash.tar.gz.$$")
     webget "$tar_tmp" "$url/ShellCrash.tar.gz" >/dev/null 2>&1
     if [ "$result" != "200" ]; then
         rm -f "$tar_tmp"
@@ -341,7 +345,7 @@ check_user() {
 }
 check_version() {
 	echo "$url" | grep -Eq '(@|/)(master|stable)(/|$)' && setversion
-	ver_tmp=$(mktemp /tmp/sc_version.XXXXXX 2>/dev/null || echo "/tmp/sc_version.$$")
+	ver_tmp=$(mktemp "${TMPDIR:-/tmp}/sc_version.XXXXXX" 2>/dev/null || echo "${TMPDIR:-/tmp}/sc_version.$$")
 	webget "$ver_tmp" "$url/version" echooff
 	[ "$result" = "200" ] && versionsh=$(head -n 1 "$ver_tmp" | tr -d '\r\n ')
 	rm -f "$ver_tmp"

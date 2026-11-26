@@ -134,14 +134,21 @@ run_doctor() {
         _doc_warn "当前模式 $redir_mod 需要 TUN，但未检测到 /dev/net/tun"
     fi
 
-    _missing=""
-    for _cmd in curl wget base64 awk sed; do
-        command -v "$_cmd" >/dev/null 2>&1 || _missing="$_missing $_cmd"
+    _missing_req=""
+    command -v curl >/dev/null 2>&1 || command -v wget >/dev/null 2>&1 || _missing_req="$_missing_req curl/wget"
+    for _cmd in awk sed; do
+        command -v "$_cmd" >/dev/null 2>&1 || _missing_req="$_missing_req $_cmd"
     done
-    if [ -z "$_missing" ]; then
-        _doc_ok "基础工具链完整 (curl/wget/base64/awk/sed)"
+    if [ -n "$_missing_req" ]; then
+        _doc_warn "缺少必需基础命令:$_missing_req"
     else
-        _doc_info "未安装的可选/基础命令:$_missing"
+        _dl_impl=$(command -v curl >/dev/null 2>&1 && printf 'curl' || printf 'wget')
+        _b64_impl="awk-fallback"
+        command -v ucode >/dev/null 2>&1 && _b64_impl="ucode"
+        command -v openssl >/dev/null 2>&1 && _b64_impl="openssl"
+        busybox base64 --help >/dev/null 2>&1 && _b64_impl="busybox-base64"
+        command -v base64 >/dev/null 2>&1 && _b64_impl="base64"
+        _doc_ok "基础工具链就绪 (下载:${_dl_impl} | Base64:${_b64_impl} | awk/sed)"
     fi
     echo "==============================================="
     return 0

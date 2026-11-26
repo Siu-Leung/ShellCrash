@@ -4,8 +4,9 @@
 name="shellcrash"
 description="Custom proxy service for ShellCrash"
 #获取目录
-CRASHDIR=$(cat /etc/profile | grep CRASHDIR | awk -F "\"" '{print $2}')
-[ -z "$CRASHDIR" ] && CRASHDIR=$(cat ~/.bashrc | grep CRASHDIR | awk -F "\"" '{print $2}')
+CRASHDIR=$(cat /etc/profile 2>/dev/null | grep CRASHDIR | awk -F "\"" '{print $2}')
+[ -z "$CRASHDIR" ] && CRASHDIR=$(cat ~/.bashrc 2>/dev/null | grep CRASHDIR | awk -F "\"" '{print $2}')
+[ -z "$CRASHDIR" ] && CRASHDIR=/etc/ShellCrash
 . "${CRASHDIR}"/configs/directories.env #加载启动目录
 . "${CRASHDIR}"/configs/command.env #加载启动命令
 
@@ -26,19 +27,19 @@ start() {
         eend $? "Firewall start failed"
         return
     fi
-	
-    # 确定运行用户：shellcrash 或 root
-    if grep -q 'shellcrash:x:0:7890' /etc/passwd; then
-        runuser="shellcrash"
-    else
-        runuser="root"
-    fi
 
-    # 必要文件检测
+    # 必要文件检测（bfstart 会在本机代理模式下按需创建 shellcrash:x:0:7890，须先执行再取 runuser）
     "$CRASHDIR"/starts/bfstart.sh
     if [ "$?" != "0" ]; then
         eend 1 "bfstart check failed"
         return
+    fi
+
+    # 确定运行用户：shellcrash 或 root
+    if grep -q '^shellcrash:x:0:7890' /etc/passwd 2>/dev/null; then
+        runuser="shellcrash"
+    else
+        runuser="root"
     fi
 
     # 启动主程序（自动守护 + 自动重启）
@@ -53,8 +54,8 @@ start() {
     eend $ret
     [ $ret -ne 0 ] && return
 
-    # 启动后操作
-    "$CRASHDIR"/starts/afstart.sh &
+    # 启动后操作（关闭继承的终端/管道描述符，防止 rc-service 阻塞）
+    "$CRASHDIR"/starts/afstart.sh >/dev/null 2>&1 </dev/null &
 }
 
 stop() {

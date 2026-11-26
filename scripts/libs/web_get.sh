@@ -89,8 +89,13 @@ webget() (
         fi
         # curl 8.x 代理鉴权头兼容（避免未加引号拆词导致 base64 被当成第二个 URL）
         auth_hdr=""
-        if [ -n "$authentication" ] && curl --version | grep -q '^curl 8.' && ckcmd base64; then
-            auth_b64=$(printf '%s' "$authentication" | base64 | tr -d '\r\n')
+        if [ -n "$authentication" ] && curl --version | grep -q '^curl 8.'; then
+            if ckcmd base64; then
+                auth_b64=$(printf '%s' "$authentication" | base64 | tr -d '\r\n')
+            elif [ -f "$CRASHDIR/libs/gen_base64.sh" ]; then
+                . "$CRASHDIR/libs/gen_base64.sh"
+                auth_b64=$(gen_base64 "$authentication")
+            fi
             [ -n "$auth_b64" ] && auth_hdr="Proxy-Authorization: Basic $auth_b64"
         fi
         if [ -n "$fsize_raw" ] && [ "$fsize_raw" -gt 204800 ] 2>/dev/null; then

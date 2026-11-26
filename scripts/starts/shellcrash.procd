@@ -6,8 +6,9 @@ SERVICE_DAEMONIZE=1
 SERVICE_WRITE_PID=1
 USE_PROCD=1
 #获取目录
-CRASHDIR=$(cat /etc/profile | grep CRASHDIR | awk -F "\"" '{print $2}')
-[ -z "$CRASHDIR" ] && CRASHDIR=$(cat ~/.bashrc | grep CRASHDIR | awk -F "\"" '{print $2}')
+CRASHDIR=$(cat /etc/profile 2>/dev/null | grep CRASHDIR | awk -F "\"" '{print $2}')
+[ -z "$CRASHDIR" ] && CRASHDIR=$(cat ~/.bashrc 2>/dev/null | grep CRASHDIR | awk -F "\"" '{print $2}')
+[ -z "$CRASHDIR" ] && CRASHDIR=/etc/ShellCrash
 . "$CRASHDIR"/configs/directories.env #加载启动目录
 . "$CRASHDIR"/configs/command.env #加载启动命令
 
@@ -15,11 +16,11 @@ start_service() {
 	if [ -n "$(cat $CRASHDIR/configs/ShellCrash.cfg | grep 'firewall_area=5')" ]; then
 		"$CRASHDIR"/starts/fw_start.sh #主旁转发
 	else
-		#本机代理用户
-		[ -n "$(grep 'shellcrash:x:0:7890' /etc/passwd)" ] && USER=shellcrash || USER=root
-		#检测必须文件
+		#检测必须文件（bfstart 会在本机代理模式下按需创建 shellcrash:x:0:7890，须先执行再取 USER）
 		"$CRASHDIR"/starts/bfstart.sh
 		if [ "$?" = "0" ]; then
+			#本机代理用户
+			grep -q '^shellcrash:x:0:7890' /etc/passwd 2>/dev/null && USER=shellcrash || USER=root
 			#使用procd创建clash后台进程
 			procd_open_instance
 			procd_set_param user $USER

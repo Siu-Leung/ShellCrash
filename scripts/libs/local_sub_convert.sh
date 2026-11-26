@@ -81,11 +81,34 @@ local_b64_decode() {
     if command -v base64 >/dev/null 2>&1; then
         base64 -d <"$_b64_tmp" >"$_out_file" 2>/dev/null
         _rc=$?
+    elif busybox base64 --help >/dev/null 2>&1; then
+        busybox base64 -d <"$_b64_tmp" >"$_out_file" 2>/dev/null
+        _rc=$?
     elif command -v openssl >/dev/null 2>&1; then
         openssl base64 -d -A <"$_b64_tmp" >"$_out_file" 2>/dev/null
         _rc=$?
+    elif command -v ucode >/dev/null 2>&1; then
+        # 原生 OpenWrt 22.03+ 默认不装 base64/openssl，但自带 ucode 内置 b64dec
+        ucode -e 'import * as fs from "fs"; let d = b64dec(fs.readfile(ARGV[0])); if (d === null) exit(1); fs.writefile(ARGV[1], d);' -- "$_b64_tmp" "$_out_file" 2>/dev/null
+        _rc=$?
     else
-        _rc=1
+        # 兜底：先按 76 字节切行避免 BusyBox awk 超长单行 O(N^2)，再用 LC_ALL=C 原样输出字节
+        sed 's/.\{76\}/&\
+/g' "$_b64_tmp" | LC_ALL=C awk '
+            BEGIN { for (i = 0; i < 64; i++) t[substr("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/", i + 1, 1)] = i }
+            NF {
+                s = $0; n = length(s)
+                for (i = 1; i <= n; i += 4) {
+                    a = t[substr(s, i, 1)]; b = t[substr(s, i + 1, 1)]
+                    c1 = substr(s, i + 2, 1); c2 = substr(s, i + 3, 1)
+                    c = t[c1]; d = t[c2]
+                    printf "%c", a * 4 + int(b / 16)
+                    if (c1 != "=" && c1 != "") printf "%c", (b % 16) * 16 + int(c / 4)
+                    if (c2 != "=" && c2 != "") printf "%c", (c % 4) * 64 + d
+                }
+            }
+        ' >"$_out_file" 2>/dev/null
+        _rc=$?
     fi
     rm -f "$_b64_tmp"
     return "$_rc"

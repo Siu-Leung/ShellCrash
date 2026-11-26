@@ -351,10 +351,11 @@ dns_direct_domains() {
                     _dns_json=$(printf '{"host":"%s","type":"A"}' "$_td_esc")
                     if command -v curl >/dev/null 2>&1; then
                         result=$(curl -s --noproxy '*' --connect-timeout 3 -H "Authorization: Bearer $secret" -H 'Content-Type: application/json' -X POST "http://127.0.0.1:$db_port/dns/query" -d "$_dns_json" 2>&1)
-                    elif command -v wget >/dev/null 2>&1; then
-                        result=$(http_proxy='' https_proxy='' HTTP_PROXY='' HTTPS_PROXY='' wget -q --no-proxy --timeout=3 --header="Authorization: Bearer $secret" --header='Content-Type: application/json' --method=POST --body-data="$_dns_json" -O - "http://127.0.0.1:$db_port/dns/query" 2>&1)
+                    elif wget --help 2>&1 | grep -q -- '--header'; then
+                        wget --help 2>&1 | grep -q -- '-Y' && _dns_np='-Y off' || _dns_np='--no-proxy'
+                        result=$(http_proxy='' https_proxy='' HTTP_PROXY='' HTTPS_PROXY='' wget -q $_dns_np -T 3 --header="Authorization: Bearer $secret" --header='Content-Type: application/json' --post-data="$_dns_json" -O - "http://127.0.0.1:$db_port/dns/query" 2>&1)
                     else
-                        result="无可用 DNS 查询工具（nslookup/dig/curl/wget 均缺失）"
+                        result="无可用 DNS 查询工具（nslookup/dig/curl/支持header的wget 均缺失）"
                     fi
                     [ -z "$result" ] && result="查询无响应（确认内核已启动且 dns.enable=true）"
                 fi

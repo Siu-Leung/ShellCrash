@@ -8,6 +8,9 @@ CRASHDIR="$ROOT/scripts"
 
 SANDBOX=$(mktemp -d)
 trap 'command rm -rf "$SANDBOX"' EXIT
+mkdir -p "$SANDBOX/tmp"
+TMPDIR="$SANDBOX/tmp"
+export TMPDIR
 
 pidof() { return 1; }
 ckcmd() { return 1; }
@@ -18,11 +21,11 @@ wget() {
     return 1
 }
 
-# 安全网：只放行沙箱内路径及 execute_curl 自带的结果文件，并记录调用
+# 安全网：只放行沙箱内路径及 execute_curl 自带的结果文件（兼容自定义 TMPDIR），并记录调用
 rm() {
     for arg; do
         case "$arg" in
-            -* | "$SANDBOX"/* | /tmp/webget_res*) ;;
+            -* | "$SANDBOX"/* | "${TMPDIR:-/tmp}"/webget_res* | /tmp/webget_res*) ;;
             *)
                 printf '%s\n' "$*" >>"$SANDBOX/rm_blocked"
                 return 1

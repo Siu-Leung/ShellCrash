@@ -13,7 +13,7 @@
 | **自建 Telegram Bot 与推送** | 支持公共机器人中转；`bot_tg.sh` 缺 `TG_CHATID` 启动校验、未限 `limit=1` 且贪婪提取 `"id"` 可被正文伪造绕过；配置恢复未防 Tar-Slip；`tools/tg_bot.sh` 无 ChatID 校验 | 移除公共机器人中转与全部推广/引流链接，仅直连 `api.telegram.org/bot<自建TOKEN>`；强制数字型 `TG_CHATID`（含负数群组）与非空 `TG_TOKEN`；固定 `limit=1` 并严格提取消息头 `chat.id`；`_safe_tar_check` 拦截 `../`、绝对路径、符号链接、硬链接及设备节点 |
 | **全链路自主供应链** | 依赖外部下载源、第三方规则集仓库、上游 Docker 镜像；新装空 `url_id` 时 `bin/*` 误拉 `@dev`；CI 过宽 `write-all` 权限与 `${file#bin/}` 缓存刷新失效 | 全仓统一指向 `Siu-Leung/ShellCrash`（脚本走 `dev`，内核/面板/GeoData/规则集走 `update`）；`web_get_bin.sh` 修复新装分支分流；全部 14 份规则模板与 6 个面板 URL 迁至本仓库 `@update`；Docker 改为本地自建 `shellcrash:local`；CI 全部收敛为最小权限并修复缓存刷新、版本更新与输入隔离 |
 | **DNS / Sing-Box 与逻辑修复** | Sing-Box 私有 DoH 丢 path、`dns_protect=OFF` 未改 `dns.json` `final`、`source_ip`/`source_port` 字段不规范、密码含 `:` 被截断、`sb_inbounds.sh` 尾部多余逗号；`8_tools.sh` `stop_iptables` 误用 `iptables` 清理 IPv6；`fw_nftables.sh` `$$vm_ipv4` 笔误 | 逐项修复上述 JSON/YAML 语法与转义、IPv6 防火墙清理、`check_geo.sh` `find` 引号、`init.sh` shebang 锚定、`fw_filter.sh` `add_ip` 目标文件、`9_upgrade.sh` 退出码与正则等全部缺陷 |
-| **干净打包与离线测试** | 预打包 `ShellCrash.tar.gz` 混入 `README.md` 且容易残留过期文件 | 重写 `sync_pkg.sh` 从零干净构建 `ShellCrash.tar.gz`（保留 `cn_ip.txt`/`cn_ipv6.txt`，剔除 `README.md`）；配套 16 套离线回归测试覆盖全部安全与逻辑不变量 |
+| **干净打包与离线测试** | 预打包 `ShellCrash.tar.gz` 混入 `README.md` 且容易残留过期文件 | 重写 `sync_pkg.sh` 从零干净构建 `ShellCrash.tar.gz`（保留 `cn_ip.txt`/`cn_ipv6.txt`，剔除 `README.md`）；配套 17 套离线回归测试覆盖全部安全与逻辑不变量 |
 
 ## V2 全仓逐行深度审计记录
 
@@ -80,7 +80,7 @@
 
 ```sh
 sh sync_pkg.sh                                                       # 干净重建 ShellCrash.tar.gz
-for t in tests/test_*.sh tests/clash_geodata.sh; do sh "$t" || exit 1; done  # 运行全部 16 套离线回归测试
+for t in tests/test_*.sh tests/clash_geodata.sh; do sh "$t" || exit 1; done  # 运行全部 17 套离线回归测试
 ```
 
 所有测试脚本均兼容无 `ripgrep`（自动回退至标准 `grep -E`）的纯 Linux 环境。
@@ -116,3 +116,14 @@ for t in tests/test_*.sh tests/clash_geodata.sh; do sh "$t" || exit 1; done  # �
 
 - 验证：真实 Alpine 3.21（BusyBox 1.37 wget）与 OpenWrt 23.05.5（uclient-fetch）容器内对 badssl.com 自签/过期证书、有效证书、HTTP/HTTPS 503 逐项实测，并在容器保守模式下完成 `.4/.6 → .7` 与无 `curl` `.7 → .7` 真实 Mihomo 运行态升级验证；真实 Mihomo / Sing-Box 对补写后的原生配置 `-t` / `check` 通过，并用本地自签 Trojan 服务端完成 `node_tls=skip` / `follow`（未标字段与已标跳过）端到端转发验证；新增 `tests/test_tls_policy.sh`。
 - 仍未覆盖：真实 OpenWrt 硬件（procd/防火墙/路由）、完整 `systemd` 宿主的 `.4/.6 → .7` 运行态服务升级；内核自己拉取的 `type: http` / `remote` 订阅证书仍由内核校验。
+
+## 1.9.7-hardened.8：全平台开箱即用兼容加固（OpenWrt / Alpine / 旧版 Linux / 测试夹具）
+
+| 平台场景 | 原有限制 / 隐患 | 加固方案 |
+|---|---|---|
+| 原生 OpenWrt 22.03/23.05+（默认无 `base64` / `openssl`） | `local_b64_decode` 与 `gen_base64` 仅调 `base64` / `openssl`，全新刷机的 OpenWrt 无法解码 Base64 机场订阅，也无法生成分享链接或随机密钥 | 依次回退 `busybox base64` → OpenWrt 内置 `ucode`（`b64dec` / `b64enc`）→ 76 字节切行 + `LC_ALL=C awk` 纯流式编解码兜底，零外部包依赖 |
+| 原生 OpenWrt（默认无 `od`） | `_upg_check_service_ready` 用 `od` 识别 ELF，OpenWrt 缺 `od` 时静默跳过本地控制器 API 就绪核验 | 优先用全平台自带的 `dd` 读取前 4 字节比对 `\177ELF`，保留 `od` 兜底 |
+| `install.sh` / `install_en.sh`（Alpine / OpenWrt / CentOS 7） | 仅在 `wget --version` 成功时才处理 `SKIP_CERT=1` 且强加 `--show-progress`：Alpine/OpenWrt 上 `SKIP_CERT=1` 失效，CentOS 7 旧版 GNU `wget 1.14` 报未知选项退出 | 改为按 `--help` 与实测能力分别探测 `--show-progress`、`--max-redirect` 与 `--no-check-certificate`，超时统一用 `-T 5`，临时文件遵循 `${TMPDIR:-/tmp}` |
+| OpenWrt `procd` / Alpine `OpenRC` 首次启用本机透明代理 | `shellcrash.procd` 与 `shellcrash.openrc` 在执行 `bfstart.sh` 之前读取 `/etc/passwd` 判断 `shellcrash:x:0:7890`，导致首次启动以 `root`(GID 0) 运行产生流量死循环；且无 `useradd` 时写入的 6 字段 `passwd` 缺登录 shell | 统一改为先运行 `bfstart.sh` 再读取 `shellcrash:x:0:7890`；`bfstart.sh` 补齐标准 7 字段 `/etc/passwd`；`init.sh` 安装 `procd`/`openrc` 脚本时同步替换真实 `$CRASHDIR`；`openrc` 后台 `afstart.sh` 关闭标准流 |
+| MIPS 路由器 / `dash` / 缺 `hexdump` 环境 | `check_cpucore.sh` 使用非标准 `echo -n I | hexdump -o`，在 `dash` 或无 `hexdump` 系统误判大小端；`web_save.sh` / `web_restore.sh` / `dns.sh` / `doctor.sh` 存在 GNU `wget` 参数假设 | `check_cpucore.sh` 改用 `mipsel` 匹配 + `printf` + `hexdump`/`od`/ELF 头兜底；`web_save`/`dns` 兼容 BusyBox `-Y off` 与 `--post-data`；`doctor.sh` 按等价实现汇报工具链状态 |
+| 任意 `TMPDIR` 与无 `geo/` 测试环境 | `test_webget_curl_exit.sh` 的 `rm` 白名单写死 `/tmp/webget_res*`；`real_core_matrix.sh` 缺 `geo/` 时产生 `cp` 报错噪声 | `test_webget_curl_exit.sh` 兼容自定义 `TMPDIR`；`real_core_matrix.sh` 对可选 `geo/*` 判存静默跳过；新增 `tests/test_cross_platform.sh` |

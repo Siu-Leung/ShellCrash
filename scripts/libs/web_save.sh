@@ -8,8 +8,9 @@ get_save() { #获取面板信息并内部处理所有异常
 			return 0
 		}
 		return 1
-	elif [ -n "$(wget --help 2>&1 | grep '\-\-method')" ]; then
-		response=$(http_proxy="" https_proxy="" HTTP_PROXY="" HTTPS_PROXY="" wget -q --timeout=3 --no-proxy --header="Authorization: Bearer ${secret}" --header="Content-Type:application/json" -O - "$1" 2>&1)
+	elif wget --help 2>&1 | grep -q -- '--header'; then
+		wget --help 2>&1 | grep -q -- '-Y' && _ws_np='-Y off' || _ws_np='--no-proxy'
+		response=$(http_proxy="" https_proxy="" HTTP_PROXY="" HTTPS_PROXY="" wget -q -T 3 $_ws_np --header="Authorization: Bearer ${secret}" --header="Content-Type:application/json" -O - "$1" 2>&1)
 		exit_code=$?
 		[ $exit_code -eq 0 ] && [ -n "$response" ] && [ "$response" != "{}" ] && {
 			echo "$response"

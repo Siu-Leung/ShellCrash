@@ -106,9 +106,14 @@ _upg_check_service_ready() {
     fi
     if [ -e "$TMPDIR/CrashCore" ]; then
         pidof CrashCore >/dev/null 2>&1 || return 1
-        # 若运行时核心为真实 ELF 二进制（非离线测试脚本替身），进一步核验本地控制器 API 就绪
-        _ucsr_magic=$(od -An -tx1 -N4 "$TMPDIR/CrashCore" 2>/dev/null | tr -d ' \t\r\n')
-        if [ "$_ucsr_magic" = "7f454c46" ]; then
+        # 若运行时核心为真实 ELF 二进制（非离线测试脚本替身；优先 dd 兼容无 od 的原生 OpenWrt）
+        _ucsr_is_elf=0
+        if [ "$(dd if="$TMPDIR/CrashCore" bs=1 count=4 2>/dev/null)" = "$(printf '\177ELF')" ]; then
+            _ucsr_is_elf=1
+        elif [ "$(od -An -tx1 -N4 "$TMPDIR/CrashCore" 2>/dev/null | tr -d ' \t\r\n')" = "7f454c46" ]; then
+            _ucsr_is_elf=1
+        fi
+        if [ "$_ucsr_is_elf" = 1 ]; then
             (
                 [ -f "$CRASHDIR/configs/ShellCrash.cfg" ] && . "$CRASHDIR/configs/ShellCrash.cfg" >/dev/null 2>&1
                 [ "$firewall_area" = "5" ] && exit 0

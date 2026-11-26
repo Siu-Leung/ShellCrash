@@ -128,7 +128,7 @@ crash -h     # 查看命令行帮助
 
 ## 开发、打包与离线回归测试
 
-完整安全审计与架构加固明细请参阅 [SECURITY_HARDENING.md](SECURITY_HARDENING.md)。修改 `scripts/`、`public/` 或 `rules/` 源码后，请同步干净重建预打包文件并运行全部 16 套离线回归测试：
+完整安全审计与架构加固明细请参阅 [SECURITY_HARDENING.md](SECURITY_HARDENING.md)。修改 `scripts/`、`public/` 或 `rules/` 源码后，请同步干净重建预打包文件并运行全部 17 套离线回归测试：
 
 ```sh
 sh sync_pkg.sh

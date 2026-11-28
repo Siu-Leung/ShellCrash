@@ -13,7 +13,7 @@
 | **自建 Telegram Bot 与推送** | 支持公共机器人中转；`bot_tg.sh` 缺 `TG_CHATID` 启动校验、未限 `limit=1` 且贪婪提取 `"id"` 可被正文伪造绕过；配置恢复未防 Tar-Slip；`tools/tg_bot.sh` 无 ChatID 校验 | 移除公共机器人中转与全部推广/引流链接，仅直连 `api.telegram.org/bot<自建TOKEN>`；强制数字型 `TG_CHATID`（含负数群组）与非空 `TG_TOKEN`；固定 `limit=1` 并严格提取消息头 `chat.id`；`_safe_tar_check` 拦截 `../`、绝对路径、符号链接、硬链接及设备节点 |
 | **全链路自主供应链** | 依赖外部下载源、第三方规则集仓库、上游 Docker 镜像；新装空 `url_id` 时 `bin/*` 误拉 `@dev`；CI 过宽 `write-all` 权限与 `${file#bin/}` 缓存刷新失效 | 全仓统一指向 `Siu-Leung/ShellCrash`（脚本走 `dev`，内核/面板/GeoData/规则集走 `update`）；`web_get_bin.sh` 修复新装分支分流；全部 14 份规则模板与 6 个面板 URL 迁至本仓库 `@update`；Docker 改为本地自建 `shellcrash:local`；CI 全部收敛为最小权限并修复缓存刷新、版本更新与输入隔离 |
 | **DNS / Sing-Box 与逻辑修复** | Sing-Box 私有 DoH 丢 path、`dns_protect=OFF` 未改 `dns.json` `final`、`source_ip`/`source_port` 字段不规范、密码含 `:` 被截断、`sb_inbounds.sh` 尾部多余逗号；`8_tools.sh` `stop_iptables` 误用 `iptables` 清理 IPv6；`fw_nftables.sh` `$$vm_ipv4` 笔误 | 逐项修复上述 JSON/YAML 语法与转义、IPv6 防火墙清理、`check_geo.sh` `find` 引号、`init.sh` shebang 锚定、`fw_filter.sh` `add_ip` 目标文件、`9_upgrade.sh` 退出码与正则等全部缺陷 |
-| **干净打包与离线测试** | 预打包 `ShellCrash.tar.gz` 混入 `README.md` 且容易残留过期文件 | 重写 `sync_pkg.sh` 从零干净构建 `ShellCrash.tar.gz`（保留 `cn_ip.txt`/`cn_ipv6.txt`，剔除 `README.md`）；配套 17 套离线回归测试覆盖全部安全与逻辑不变量 |
+| **干净打包与离线测试** | 预打包 `ShellCrash.tar.gz` 混入 `README.md` 且容易残留过期文件 | 重写 `sync_pkg.sh` 从零干净构建 `ShellCrash.tar.gz`（保留 `cn_ip.txt`/`cn_ipv6.txt`，剔除 `README.md`）；配套 21 套离线回归测试覆盖全部安全与逻辑不变量 |
 
 ## V2 全仓逐行深度审计记录
 
@@ -80,7 +80,7 @@
 
 ```sh
 sh sync_pkg.sh                                                       # 干净重建 ShellCrash.tar.gz
-for t in tests/test_*.sh tests/clash_geodata.sh; do sh "$t" || exit 1; done  # 运行全部 17 套离线回归测试
+for t in tests/test_*.sh tests/clash_geodata.sh; do sh "$t" || exit 1; done  # 运行全部 21 套离线回归测试
 ```
 
 所有测试脚本均兼容无 `ripgrep`（自动回退至标准 `grep -E`）的纯 Linux 环境。
@@ -127,3 +127,16 @@ for t in tests/test_*.sh tests/clash_geodata.sh; do sh "$t" || exit 1; done  # �
 | OpenWrt `procd` / Alpine `OpenRC` 首次启用本机透明代理 | `shellcrash.procd` 与 `shellcrash.openrc` 在执行 `bfstart.sh` 之前读取 `/etc/passwd` 判断 `shellcrash:x:0:7890`，导致首次启动以 `root`(GID 0) 运行产生流量死循环；且无 `useradd` 时写入的 6 字段 `passwd` 缺登录 shell | 统一改为先运行 `bfstart.sh` 再读取 `shellcrash:x:0:7890`；`bfstart.sh` 补齐标准 7 字段 `/etc/passwd`；`init.sh` 安装 `procd`/`openrc` 脚本时同步替换真实 `$CRASHDIR`；`openrc` 后台 `afstart.sh` 关闭标准流 |
 | MIPS 路由器 / `dash` / 缺 `hexdump` 环境 | `check_cpucore.sh` 使用非标准 `echo -n I | hexdump -o`，在 `dash` 或无 `hexdump` 系统误判大小端；`web_save.sh` / `web_restore.sh` / `dns.sh` / `doctor.sh` 存在 GNU `wget` 参数假设 | `check_cpucore.sh` 改用 `mipsel` 匹配 + `printf` + `hexdump`/`od`/ELF 头兜底；`web_save`/`dns` 兼容 BusyBox `-Y off` 与 `--post-data`；`doctor.sh` 按等价实现汇报工具链状态 |
 | 任意 `TMPDIR` 与无 `geo/` 测试环境 | `test_webget_curl_exit.sh` 的 `rm` 白名单写死 `/tmp/webget_res*`；`real_core_matrix.sh` 缺 `geo/` 时产生 `cp` 报错噪声 | `test_webget_curl_exit.sh` 兼容自定义 `TMPDIR`；`real_core_matrix.sh` 对可选 `geo/*` 判存静默跳过；新增 `tests/test_cross_platform.sh` |
+
+## 1.9.7-hardened.9：OpenWrt 面板保存/恢复、升级事务与跨平台边界修复
+
+| 问题 | 修复 |
+|---|---|
+| OpenWrt 22.03/23.05 默认 `uclient-fetch` 缺少 `--header`/`--method`/`--body-data`，导致面板选择 `get_save` 失败、`put_save` 未发请求却假返回成功 | 新增受限本机回环实现 `scripts/libs/panel_http.sh` + `scripts/libs/panel_response.uc`：仅放行 `http://127.0.0.1:<port>/...`，通过 `ucode` 限时派生 `busybox nc` 并从 stdin 管道发送请求与 Bearer 头（不入参、不落日志），严格校验 HTTP 状态码、`Content-Length` 与 chunked 响应；`curl` 显式加 `-q` 忽略 `.curlrc` 防重定向绕过；无 `curl`/GNU `wget`/本机回退时严格返回非零，不再假成功；`web_restore` 聚合任意单组失败并保留极简 BusyBox `wget --header` 兼容 |
+| 运行态升级事务：`start.sh stop` 吞掉 systemd/procd/OpenRC/s6 停服失败；`pending` 写入前无原子锁可被并发清理；停服后写 `pending` 前遭强杀无法自动恢复；健康检查在缺少核心文件时可能假成功；回滚不覆盖服务模板及新建配置 | `scripts/start.sh` 传播服务管理器停服失败并阻止继续删核心；`scripts/libs/set_config.sh` 以原子 `mkdir` 互斥并拒绝清理已有事务，先完整备份（含白名单内单个系统服务文件）并原子 `mv` 发布非空 `pending` 再停服；回滚兼容旧事务、尽量保留权限、清理初始化新建配置并恢复服务文件（systemd 同步 `daemon-reload`）；非 `firewall_area=5` 模式要求存在运行中 `CrashCore`，旁路模式按专用网关路由核验 |
+| Base64 与 `ucode` 边界：纯 AWK 解码接受 `====`/`AA=A` 等非法 padding；有 `ucode` 但缺 `fs` 模块时直接报 255 不回退；`ucode` 写盘失败误报成功；`gen_random` 管道错误未传播 | `local_b64_decode` 解码前逐字节校验字符集与 padding 位置（保留标准/URL-safe/无 padding/中文及历史单缺填充 `TQ=`），校验 `ucode` `fs` 模块可用性及 `fs.writefile()` 写入字节数；`gen_random` 私有临时目录分阶段校验随机字节与输出编码，修复 `uuencode` 多行截断；`doctor.sh` 同步按 `fs` 可用性报告 `ucode` |
+| `init.sh` 安装 procd/OpenRC 服务模板时直接 `sed` 替换 `$CRASHDIR`，含空格/`&`/`%` 的路径会破坏回退赋值或静默留默认值 | 新增 `scripts/libs/service_template.sh`（`install_service_template`）：校验路径无换行、经 `quote_cfg_val` 生成单引号字面量并用 `awk` 精确替换、`sh -n` 校验后原子替换目标，失败时保留原服务并返回非零；`shellcrash.procd` 同步给路径加引号 |
+| `tests/real_core_matrix.sh` 传相对内核目录时在临时目录生成失效软链 | 入口先将 `$1` 解析为绝对路径 |
+
+- 验证：新增 4 套回归（`test_panel_uclient.sh`、`test_upgrade_transaction.sh`、`test_b64_regressions.sh`、`test_service_template.sh`），全量 **21 套**离线回归、`real_core_matrix.sh`（含相对路径传参，ARM64 Mihomo / Sing-Box / Sing-BoxR）与双 Shell 语法检查通过；使用 OpenWrt 22.03.7 / 23.05.5 官方 rootfs 用户态工具（`uclient-fetch`、`ucode`、`busybox`）实测面板 GET/PUT/Bearer/chunked 与 Base64 有无 `fs` 模块场景。
+- 已知边界：POSIX shell 升级事务不含跨目录 `fsync`，不能保证突然断电持久化；正在运行中的旧版升级代码需升级完成后新逻辑才生效；真实 systemd 宿主、真实 OpenWrt 硬件 `procd`/防火墙/透明代理未在离线测试中直接执行。

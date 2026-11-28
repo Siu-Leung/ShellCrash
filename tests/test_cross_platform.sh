@@ -129,9 +129,9 @@ grep -q 'shellcrash:x:0:7890::/home/shellcrash:/bin/sh' scripts/starts/bfstart.s
 grep -q 'afstart\.sh >/dev/null 2>&1 </dev/null &' scripts/starts/shellcrash.openrc &&
     pass "shellcrash.openrc：后台 afstart.sh 关闭标准流防 rc-service 挂起" ||
     fail "shellcrash.openrc：后台 afstart.sh 未关闭标准流"
-[ "$(grep -c 'sed -i "s%/etc/ShellCrash%\$CRASHDIR%g" /etc/init.d/shellcrash' scripts/init.sh)" -ge 2 ] &&
-    pass "init.sh：procd 与 OpenRC 安装时均替换实际 CRASHDIR 路径" ||
-    fail "init.sh：procd/OpenRC 未替换 CRASHDIR"
+[ "$(grep -c 'install_service_template .* /etc/init.d/shellcrash "\$CRASHDIR"' scripts/init.sh)" -ge 2 ] &&
+    pass "init.sh：procd 与 OpenRC 均安全安装服务模板" ||
+    fail "init.sh：procd/OpenRC 未使用安全服务模板安装器"
 
 echo "== 4. 原生 OpenWrt 无 od 时 _upg_check_service_ready 仍识别 ELF 二进制 =="
 NOOD_BIN="$SANDBOX/nood_bin"

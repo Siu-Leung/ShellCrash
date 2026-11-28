@@ -64,18 +64,26 @@ local_b64_decode() {
     _in_file=$1
     _out_file=$2
     _b64_tmp="${_out_file}.b64.$$"
-    tr -d '\r\n\t ' <"$_in_file" | tr '_-' '/+' >"$_b64_tmp"
+    [ -f "$_in_file" ] && [ -r "$_in_file" ] || return 1
+    tr -d '\r\n\t ' <"$_in_file" >"${_b64_tmp}.raw" || { rm -f "${_b64_tmp}.raw"; return 1; }
+    tr '_-' '/+' <"${_b64_tmp}.raw" >"$_b64_tmp" || { rm -f "$_b64_tmp" "${_b64_tmp}.raw"; return 1; }
+    rm -f "${_b64_tmp}.raw"
     [ -s "$_b64_tmp" ] || { rm -f "$_b64_tmp"; return 1; }
-    # 校验是否为合法 Base64 字符集（单行整文件校验，不进入 shell argv）
-    if grep -qE '[^A-Za-z0-9+/=]' "$_b64_tmp"; then
+    # 包括 NUL 在内逐字节检查；不强制末尾未使用位为零，以兼容常见解码器。
+    _bad=$(LC_ALL=C tr -d 'A-Za-z0-9+/=' <"$_b64_tmp" | wc -c)
+    _pad=$(LC_ALL=C tr -cd '=' <"$_b64_tmp" | wc -c)
+    _len=$(wc -c <"$_b64_tmp")
+    _rem=$(( _len % 4 ))
+    if [ "$_bad" -ne 0 ] || [ "$_pad" -gt 2 ] ||
+       { [ "$_pad" -gt 0 ] && LC_ALL=C grep -q '=[^=]' "$_b64_tmp"; } ||
+       { [ "$_pad" -gt 0 ] && [ "$_rem" -ne 0 ] && ! { [ "$_pad" -eq 1 ] && [ "$_rem" -eq 3 ]; }; }; then
         rm -f "$_b64_tmp"
         return 1
     fi
-    _len=$(wc -c <"$_b64_tmp" | tr -d ' ')
-    _rem=$(( _len % 4 ))
     case "$_rem" in
-        2) printf '==' >>"$_b64_tmp" ;;
-        3) printf '=' >>"$_b64_tmp" ;;
+        2) printf '==' >>"$_b64_tmp" || { rm -f "$_b64_tmp"; return 1; } ;;
+        # 也兼容原实现支持的单个缺失填充，如 TQ=。
+        3) printf '=' >>"$_b64_tmp" || { rm -f "$_b64_tmp"; return 1; } ;;
         1) rm -f "$_b64_tmp"; return 1 ;;
     esac
     if command -v base64 >/dev/null 2>&1; then
@@ -87,9 +95,9 @@ local_b64_decode() {
     elif command -v openssl >/dev/null 2>&1; then
         openssl base64 -d -A <"$_b64_tmp" >"$_out_file" 2>/dev/null
         _rc=$?
-    elif command -v ucode >/dev/null 2>&1; then
-        # 原生 OpenWrt 22.03+ 默认不装 base64/openssl，但自带 ucode 内置 b64dec
-        ucode -e 'import * as fs from "fs"; let d = b64dec(fs.readfile(ARGV[0])); if (d === null) exit(1); fs.writefile(ARGV[1], d);' -- "$_b64_tmp" "$_out_file" 2>/dev/null
+    elif command -v ucode >/dev/null 2>&1 && ucode -e 'import * as fs from "fs"; if (type(fs.readfile) != "function" || type(fs.writefile) != "function") exit(1);' >/dev/null 2>&1; then
+        # 只有模块实际可用才选 ucode；输出失败必须向调用方传递。
+        ucode -e 'import * as fs from "fs"; let s = fs.readfile(ARGV[0]); if (s === null) exit(1); let d = b64dec(s); if (d === null || fs.writefile(ARGV[1], d) !== length(d)) exit(1);' -- "$_b64_tmp" "$_out_file" 2>/dev/null
         _rc=$?
     else
         # 兜底：先按 76 字节切行避免 BusyBox awk 超长单行 O(N^2)，再用 LC_ALL=C 原样输出字节

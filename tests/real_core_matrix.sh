@@ -9,6 +9,8 @@
 
 REPO=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 CORES="${1:-}"
+# Resolve before constructing links inside a separate temporary directory.
+[ -n "$CORES" ] && CORES=$(CDPATH= cd -- "$CORES" 2>/dev/null && pwd -P)
 
 if [ -z "$CORES" ] || [ ! -x "$CORES/meta/CrashCore" ] || [ ! -x "$CORES/singbox/CrashCore" ] || [ ! -x "$CORES/singboxr/CrashCore" ]; then
     echo "Usage: sh tests/real_core_matrix.sh <real_cores_dir>" >&2

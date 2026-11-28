@@ -25,25 +25,58 @@ _b64_enc_hex() {
         }
     '
 }
-gen_random() {
+# $1 是随机字节数（正十进制整数），不是输出字符数。
+# 使用私有临时目录逐阶段检查，避免 POSIX 管道只返回最后一段的状态。
+gen_random() (
+    _gr_n=$1
+    case $_gr_n in ''|*[!0-9]*) return 1 ;; esac
+    while [ "${_gr_n#0}" != "$_gr_n" ]; do _gr_n=${_gr_n#0}; done
+    # 避免 32 位 shell 算术溢出；AWK 兜底的内存随请求线性增长。
+    case $_gr_n in ''|?????????*) return 1 ;; esac
+    umask 077
+    _gr_try=0
+    while :; do
+        _gr_dir=${TMPDIR:-/tmp}/shellcrash-random.$$.${_gr_try}
+        if mkdir "$_gr_dir" 2>/dev/null; then break; fi
+        _gr_try=$(( _gr_try + 1 ))
+        [ "$_gr_try" -lt 32 ] || return 1
+    done
+    trap 'rm -rf "$_gr_dir"' 0
+    trap 'exit 1' 1 2 3 15
     if ckcmd openssl; then
-        openssl rand --base64 "$1" | tr -d '\r\n'
-    elif ckcmd base64; then
-        dd if=/dev/urandom bs=1 count="$1" 2>/dev/null | base64 | tr -d '\r\n'
-    elif busybox base64 --help >/dev/null 2>&1; then
-        dd if=/dev/urandom bs=1 count="$1" 2>/dev/null | busybox base64 | tr -d '\r\n'
-    elif ckcmd ucode; then
-        ucode -e 'import * as fs from "fs"; let f = fs.open("/dev/urandom", "r"); let s = f ? f.read(+ARGV[0]) : null; if (!s) exit(1); print(b64enc(s));' -- "$1" 2>/dev/null
-    elif ckcmd uuencode; then
-        dd if=/dev/urandom bs=1 count="$1" 2>/dev/null | uuencode -m - | sed -n '2p' | tr -d '\r\n'
-    elif ckcmd hexdump; then
-        dd if=/dev/urandom bs=1 count="$1" 2>/dev/null | hexdump -v -e '1/1 "%02x"' | _b64_enc_hex
-    elif ckcmd od; then
-        dd if=/dev/urandom bs=1 count="$1" 2>/dev/null | od -An -tx1 -v | _b64_enc_hex
+        openssl rand -base64 "$_gr_n" >"$_gr_dir/encoded" 2>/dev/null || return 1
+    elif ckcmd ucode && ! ckcmd base64 && ! busybox base64 --help >/dev/null 2>&1 &&
+         ucode -e 'import * as fs from "fs"; if (type(fs.open) != "function") exit(1);' >/dev/null 2>&1; then
+        ucode -e 'import * as fs from "fs"; let f = fs.open("/dev/urandom", "r"); let n = +ARGV[0]; let s = f ? f.read(n) : null; if (s === null || length(s) != n) exit(1); print(b64enc(s));' -- "$_gr_n" >"$_gr_dir/encoded" 2>/dev/null || return 1
     else
-        return 1
+        dd if=/dev/urandom of="$_gr_dir/raw" bs=1 count="$_gr_n" 2>/dev/null || return 1
+        [ "$(wc -c <"$_gr_dir/raw")" -eq "$_gr_n" ] || return 1
+        if ckcmd base64; then
+            base64 <"$_gr_dir/raw" >"$_gr_dir/encoded" || return 1
+        elif busybox base64 --help >/dev/null 2>&1; then
+            busybox base64 <"$_gr_dir/raw" >"$_gr_dir/encoded" || return 1
+        elif ckcmd uuencode; then
+            uuencode -m - <"$_gr_dir/raw" >"$_gr_dir/uu" || return 1
+            sed '1d; /^====$/d; /^end$/d' "$_gr_dir/uu" >"$_gr_dir/encoded" || return 1
+        elif ckcmd hexdump; then
+            hexdump -v -e '1/1 "%02x"' <"$_gr_dir/raw" >"$_gr_dir/hex" || return 1
+            _b64_enc_hex <"$_gr_dir/hex" >"$_gr_dir/encoded" || return 1
+        elif ckcmd od; then
+            od -An -tx1 -v <"$_gr_dir/raw" >"$_gr_dir/hex" || return 1
+            _b64_enc_hex <"$_gr_dir/hex" >"$_gr_dir/encoded" || return 1
+        else
+            return 1
+        fi
     fi
-}
+    tr -d '\r\n' <"$_gr_dir/encoded" >"$_gr_dir/result" || return 1
+    _gr_len=$(wc -c <"$_gr_dir/result") || return 1
+    [ "$_gr_len" -eq $(( (_gr_n + 2) / 3 * 4 )) ] || return 1
+    [ "$(LC_ALL=C tr -d 'A-Za-z0-9+/=' <"$_gr_dir/result" | wc -c)" -eq 0 ] || return 1
+    _gr_pad=$(LC_ALL=C tr -cd '=' <"$_gr_dir/result" | wc -c) || return 1
+    [ "$_gr_pad" -eq $(( (3 - _gr_n % 3) % 3 )) ] || return 1
+    LC_ALL=C grep -q '=[^=]' "$_gr_dir/result" && return 1
+    cat "$_gr_dir/result"
+)
 #对指定字符串进行base64转码
 gen_base64() {
     if ckcmd base64; then

@@ -83,26 +83,29 @@ stop)
     fi
     #停止tg_bot
     . "$CRASHDIR"/menus/bot_tg_service.sh && bot_tg_stop
-    #多种方式结束进程
+    # 即使后续清理成功，也不得掩盖服务管理器的停服错误。
+    _stop_rc=0
     if [ -f "$TMPDIR/shellcrash.pid" ];then
-        kill -TERM "$(cat "$TMPDIR/shellcrash.pid")" 2>/dev/null
+        kill -TERM "$(cat "$TMPDIR/shellcrash.pid")" 2>/dev/null || _stop_rc=1
         rm -f "$TMPDIR/shellcrash.pid"
-        stop_firewall
+        stop_firewall # 旧脚本为尽力清理，缺少规则时常返回非零
     elif is_root_user && grep -q 'systemd' /proc/1/comm 2>/dev/null; then
-        systemctl stop shellcrash.service >/dev/null 2>&1
+        systemctl stop shellcrash.service >/dev/null 2>&1 || _stop_rc=1
     elif [ -f /etc/rc.common ] && grep -q 'procd' /proc/1/comm 2>/dev/null; then
-        /etc/init.d/shellcrash stop >/dev/null 2>&1
+        /etc/init.d/shellcrash stop >/dev/null 2>&1 || _stop_rc=1
     elif grep -q 's6' /proc/1/comm 2>/dev/null; then
-        /command/s6-svc -d /run/service/shellcrash
-        stop_firewall
+        /command/s6-svc -d /run/service/shellcrash || _stop_rc=1
+        stop_firewall # 旧脚本为尽力清理，缺少规则时常返回非零
     elif rc-status -r >/dev/null 2>&1; then
-        rc-service shellcrash stop >/dev/null 2>&1
+        rc-service shellcrash stop >/dev/null 2>&1 || _stop_rc=1
     else
-        stop_firewall
+        stop_firewall # 旧脚本为尽力清理，缺少规则时常返回非零
     fi
-    killall CrashCore 2>/dev/null
+    # 停服管理器失败时保留进程和核心文件，交由调用方判断并恢复。
+    [ "$_stop_rc" = 0 ] || exit 1
+    killall CrashCore 2>/dev/null # 没有进程时 killall 常返回非零
     #清理缓存目录
-    rm -rf "$TMPDIR"/CrashCore
+    rm -rf "$TMPDIR"/CrashCore || exit 1
     ;;
 restart)
     "$0" stop && "$0" start

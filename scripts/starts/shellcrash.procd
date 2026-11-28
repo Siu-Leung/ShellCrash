@@ -13,7 +13,7 @@ CRASHDIR=$(cat /etc/profile 2>/dev/null | grep CRASHDIR | awk -F "\"" '{print $2
 . "$CRASHDIR"/configs/command.env #加载启动命令
 
 start_service() {
-	if [ -n "$(cat $CRASHDIR/configs/ShellCrash.cfg | grep 'firewall_area=5')" ]; then
+	if grep -q 'firewall_area=5' "$CRASHDIR/configs/ShellCrash.cfg" 2>/dev/null; then
 		"$CRASHDIR"/starts/fw_start.sh #主旁转发
 	else
 		#检测必须文件（bfstart 会在本机代理模式下按需创建 shellcrash:x:0:7890，须先执行再取 USER）

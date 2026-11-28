@@ -76,6 +76,8 @@ safe_tar_check() {
     _stc_entries=$(tar -tzf "$1" 2>/dev/null) || return 1
     [ -n "$_stc_entries" ] || return 1
     printf '%s\n' "$_stc_entries" | grep -Eq '(^/|^\.\./|/\.\./|/\.\.$|^\.\.$)' && return 1
+    # 内部事务目录不能由升级包覆盖。
+    printf '%s\n' "$_stc_entries" | grep -Eq '^(\./)*\.upg_txn(/|$)' && return 1
     _stc_listing=$(tar -tvzf "$1" 2>/dev/null) || return 1
     printf '%s\n' "$_stc_listing" | grep -Eq '^[lhcb]' && return 1
     return 0
@@ -92,8 +94,23 @@ ensure_safe_tmpdir() {
     return 0
 }
 
+# 旁路模式没有核心进程；只在能确认专用路由时视为运行中。
+_upg_gateway_active() (
+    [ -f "$CRASHDIR/configs/ShellCrash.cfg" ] && . "$CRASHDIR/configs/ShellCrash.cfg" >/dev/null 2>&1
+    [ -f "$CRASHDIR/configs/gateway.cfg" ] && . "$CRASHDIR/configs/gateway.cfg" >/dev/null 2>&1
+    [ -n "$table" ] || table=100
+    [ "$firewall_area" = 5 ] && [ -n "$table" ] && [ -n "$bypass_host" ] || exit 1
+    ip route show table "$table" 2>/dev/null | awk -v host="$bypass_host" '$1 == "default" && $2 == "via" && $3 == host { found=1 } END { exit !found }'
+)
+
 # 核验升级/回滚后实例级运行健康度（systemd MainPID + CrashCore 进程 + 真实 ELF 核心本地控制器 API）
 _upg_check_service_ready() {
+    # 主旁转发模式不要求 CrashCore 或 systemd 进程。
+    if ( [ -f "$CRASHDIR/configs/ShellCrash.cfg" ] && . "$CRASHDIR/configs/ShellCrash.cfg" >/dev/null 2>&1; [ "$firewall_area" = 5 ] ); then
+        _upg_gateway_active
+        return $?
+    fi
+    [ -n "$(pidof CrashCore 2>/dev/null)" ] || return 1
     if { [ "$(id -u 2>/dev/null)" = "0" ] || [ "$USER" = "root" ]; } && \
        grep -q 'systemd' /proc/1/comm 2>/dev/null && \
        [ "$(systemctl show -p LoadState shellcrash.service 2>/dev/null | sed 's/LoadState=//')" = "loaded" ]; then
@@ -150,13 +167,38 @@ _upg_check_service_ready() {
     return 0
 }
 
+# 拒绝越界路径及安装树中间组件的符号链接；不跟随链接写入树外。
+_upg_path_safe() {
+    case "$1" in ''|/*|.|..|../*|*/../*|*/..) return 1 ;; esac
+    _ups_dir=$(dirname "$1")
+    while [ "$_ups_dir" != . ] && [ "$_ups_dir" != / ]; do
+        [ ! -L "$CRASHDIR/$_ups_dir" ] || return 1
+        _ups_next=$(dirname "$_ups_dir")
+        [ "$_ups_next" != "$_ups_dir" ] || return 1
+        _ups_dir="$_ups_next"
+    done
+    return 0
+}
+
 # 执行 .upg_txn 快照的字节级文件与服务恢复（逐文件校验，恢复失败保留快照并返回非零）
 _upg_txn_restore() {
     _utr_txn="${1:-$CRASHDIR/.upg_txn}"
     _utr_err=0
+    # 新服务可能已部分启动；无法安全停下时保留现场，不覆盖正在运行的文件。
+    if [ -f "$_utr_txn/start_attempt" ] && [ ! -f "$_utr_txn/rollback_stopped" ]; then
+        if ! "$CRASHDIR/start.sh" stop >/dev/null 2>&1; then
+            mv -f "$_utr_txn/pending" "$_utr_txn/rollback_failed" 2>/dev/null || true
+            return 1
+        fi
+        if ! : >"$_utr_txn/rollback_stopped"; then
+            mv -f "$_utr_txn/pending" "$_utr_txn/rollback_failed" 2>/dev/null || true
+            return 1
+        fi
+    fi
     if [ -f "$_utr_txn/newlist" ]; then
         while IFS= read -r _rel || [ -n "$_rel" ]; do
             [ -n "$_rel" ] || continue
+            if ! _upg_path_safe "$_rel"; then _utr_err=1; continue; fi
             if [ ! -e "$_utr_txn/bak/$_rel" ] && [ -e "$CRASHDIR/$_rel" -o -L "$CRASHDIR/$_rel" ]; then
                 rm -f "$CRASHDIR/$_rel" 2>/dev/null
                 [ ! -e "$CRASHDIR/$_rel" ] && [ ! -L "$CRASHDIR/$_rel" ] || _utr_err=1
@@ -168,22 +210,48 @@ _upg_txn_restore() {
         ( cd "$_utr_txn/bak" && find . -type f | sed 's|^\./||' ) >"$_utr_baklist"
         while IFS= read -r _rel || [ -n "$_rel" ]; do
             [ -n "$_rel" ] || continue
+            if ! _upg_path_safe "$_rel"; then _utr_err=1; continue; fi
             if ! mkdir -p "$CRASHDIR/$(dirname "$_rel")" 2>/dev/null || \
-               ! cp -f "$_utr_txn/bak/$_rel" "$CRASHDIR/$_rel" 2>/dev/null || \
+               [ -L "$CRASHDIR/$_rel" ] || \
+               ! { cp -p -f "$_utr_txn/bak/$_rel" "$CRASHDIR/$_rel" 2>/dev/null || { cp -f "$_utr_txn/bak/$_rel" "$CRASHDIR/$_rel" 2>/dev/null && { [ ! -x "$_utr_txn/bak/$_rel" ] || chmod +x "$CRASHDIR/$_rel" 2>/dev/null || true; }; }; } || \
                ! cmp -s "$_utr_txn/bak/$_rel" "$CRASHDIR/$_rel"; then
                 _utr_err=1
             fi
         done <"$_utr_baklist"
         rm -f "$_utr_baklist"
     fi
+    # 新事务记录 init.sh 可能替换的单个系统服务文件；旧事务无此元数据。
+    if [ -f "$_utr_txn/external/path" ]; then
+        _utr_ext=$(cat "$_utr_txn/external/path" 2>/dev/null)
+        case "$_utr_ext" in
+            /etc/init.d/shellcrash|/etc/systemd/system/shellcrash.service|/usr/lib/systemd/system/shellcrash.service)
+                if [ -L "$_utr_ext" ]; then
+                    _utr_err=1
+                elif [ -f "$_utr_txn/external/existed" ]; then
+                    cp -pf "$_utr_txn/external/backup" "$_utr_ext" 2>/dev/null && cmp -s "$_utr_txn/external/backup" "$_utr_ext" || _utr_err=1
+                elif [ -f "$_utr_txn/external/absent" ]; then
+                    rm -f "$_utr_ext" 2>/dev/null || _utr_err=1
+                else
+                    _utr_err=1
+                fi
+                if [ -f "$_utr_txn/external/systemd" ]; then
+                    systemctl daemon-reload >/dev/null 2>&1 || _utr_err=1
+                fi
+                ;;
+            *) _utr_err=1 ;;
+        esac
+    fi
     _utr_run=$(cat "$_utr_txn/was_running" 2>/dev/null)
     if [ "$_utr_run" = "1" ]; then
-        if ! "$CRASHDIR"/start.sh start >/dev/null 2>&1 || ! _upg_check_service_ready; then
-            _utr_err=1
+        # 标记表示停服已成功：不能把残留的新版本进程当作已恢复的旧服务。
+        if [ ! -f "$_utr_txn/format_v2" ] || [ -f "$_utr_txn/stopped" ] || ! _upg_check_service_ready; then
+            if ! "$CRASHDIR"/start.sh start >/dev/null 2>&1 || ! _upg_check_service_ready; then
+                _utr_err=1
+            fi
         fi
     fi
     if [ "$_utr_err" = "0" ]; then
-        rm -rf "$_utr_txn"
+        rm -rf "$_utr_txn" || return 1
         return 0
     else
         # 恢复未完全成功：保留 .upg_txn/bak 恢复资料供人工核查，仅将 pending 转为 rollback_failed 防死循环
@@ -198,19 +266,17 @@ recover_interrupted_upgrade() {
     _riu_txn="$CRASHDIR/.upg_txn"
     [ -f "$_riu_txn/pending" ] || return 0
     [ -n "$_SC_UPG_ACTIVE" ] && return 0
+    # 单独的恢复锁防止多个 get_config 同时恢复；残留锁宁可人工处理。
+    mkdir "$_riu_txn/recovering" 2>/dev/null || return 1
+    [ -f "$_riu_txn/pending" ] || { rmdir "$_riu_txn/recovering" 2>/dev/null; return 0; }
     while IFS= read -r _riu_owner || [ -n "$_riu_owner" ]; do
         _riu_owner=$(printf '%s' "$_riu_owner" | tr -d '\r\n ')
         case "$_riu_owner" in
             '' | 0 | 1 | *[!0-9]*) continue ;;
         esac
-        if [ "$_riu_owner" = "$$" ]; then
-            return 0
-        elif [ -d "/proc/$_riu_owner" ]; then
-            _riu_cmd=$(tr '\0' ' ' <"/proc/$_riu_owner/cmdline" 2>/dev/null || true)
-            case "$_riu_cmd" in
-                *sh* | *menu* | *task* | *ShellCrash* | '') return 0 ;;
-            esac
-        elif [ ! -d /proc ] && kill -0 "$_riu_owner" 2>/dev/null; then
+        # PID 复用或权限不足可能导致误阻塞，不能据此冒险恢复活事务。
+        if [ "$_riu_owner" = "$$" ] || [ -d "/proc/$_riu_owner" ] || kill -0 "$_riu_owner" 2>/dev/null; then
+            rmdir "$_riu_txn/recovering" 2>/dev/null
             return 0
         fi
     done <"$_riu_txn/pending"
@@ -219,6 +285,7 @@ recover_interrupted_upgrade() {
     _upg_txn_restore "$_riu_txn"
     _riu_rc=$?
     unset _SC_UPG_ACTIVE
+    rmdir "$_riu_txn/recovering" 2>/dev/null || true
     return "$_riu_rc"
 }
 
@@ -247,8 +314,19 @@ apply_script_upgrade() {
         fi
     fi
 
-    rm -rf "$_asu_stage" "$_asu_txn"
-    mkdir -p "$_asu_stage" "$_asu_bak" || return 1
+    # 原子 mkdir 是互斥点：无 pending 的目录也可能属于正在准备的升级，绝不能删除。
+    if ! mkdir "$_asu_txn" 2>/dev/null; then
+        echo "升级事务目录已存在($_asu_txn)，保留快照并中止；请核查残留事务。" >&2
+        return 1
+    fi
+    if ! mkdir "$_asu_stage"; then
+        rm -rf "$_asu_txn"
+        return 1
+    fi
+    if ! mkdir "$_asu_bak"; then
+        rm -rf "$_asu_stage" "$_asu_txn"
+        return 1
+    fi
 
     if ! safe_tar_check "$_asu_tar" || \
        ! tar -zxf "$_asu_tar" ${tar_para} -C "$_asu_stage" 2>/dev/null || \
@@ -266,7 +344,7 @@ apply_script_upgrade() {
         _acv_src="$1"
         _acv_dst="$2"
         mkdir -p "$(dirname "$_acv_dst")" 2>/dev/null || return 1
-        { cp -p "$_acv_src" "$_acv_dst" 2>/dev/null || cp -f "$_acv_src" "$_acv_dst" 2>/dev/null; } || return 1
+        { cp -pf "$_acv_src" "$_acv_dst" 2>/dev/null || { cp -f "$_acv_src" "$_acv_dst" 2>/dev/null && { [ ! -x "$_acv_src" ] || chmod +x "$_acv_dst" 2>/dev/null || true; }; }; } || return 1
         cmp -s "$_acv_src" "$_acv_dst"
     }
 
@@ -275,8 +353,17 @@ apply_script_upgrade() {
         rm -rf "$_asu_stage" "$_asu_txn"
         return 1
     fi
+    # init 还会修改/生成非包成员配置，纳入同一旧版兼容的 newlist。
+    for _cfg in configs/ShellCrash.cfg configs/command.env configs/directories.env configs/i18n.cfg; do
+        printf '%s\n' "$_cfg" >>"$_asu_list" || { rm -rf "$_asu_stage" "$_asu_txn"; return 1; }
+    done
     while IFS= read -r _rel || [ -n "$_rel" ]; do
         [ -n "$_rel" ] || continue
+        # 不跟随安装树内符号链接写入树外，避免快照及回滚污染其他文件。
+        if ! _upg_path_safe "$_rel" || [ -L "$CRASHDIR/$_rel" ]; then
+            rm -rf "$_asu_stage" "$_asu_txn"
+            return 1
+        fi
         if [ -f "$CRASHDIR/$_rel" ]; then
             if ! _asu_copy_verify "$CRASHDIR/$_rel" "$_asu_bak/$_rel"; then
                 rm -rf "$_asu_stage" "$_asu_txn"
@@ -286,41 +373,52 @@ apply_script_upgrade() {
     done <"$_asu_list"
 
     _asu_was_running=0
-    [ -n "$(pidof CrashCore 2>/dev/null)" ] && _asu_was_running=1
-    if ! printf '%s\n' "$_asu_was_running" >"$_asu_txn/was_running" || [ ! -s "$_asu_txn/was_running" ]; then
+    { [ -n "$(pidof CrashCore 2>/dev/null)" ] || _upg_gateway_active; } && _asu_was_running=1
+    if ! printf '%s\n' "$_asu_was_running" >"$_asu_txn/was_running" || [ ! -s "$_asu_txn/was_running" ] || ! : >"$_asu_txn/format_v2"; then
         rm -rf "$_asu_stage" "$_asu_txn"
         return 1
     fi
 
-    # 停服失败时严禁覆盖运行中的脚本目录
-    if [ -x "$CRASHDIR/start.sh" ] && ! "$CRASHDIR"/start.sh stop >/dev/null 2>&1; then
-        rm -rf "$_asu_stage" "$_asu_txn"
-        return 1
+    # 与 init.sh 同样的平台选择；仅备份其固定服务文件，不覆盖其他系统状态。
+    _asu_external=''
+    _asu_sysdir=''
+    [ -w /usr/lib/systemd/system ] && _asu_sysdir=/usr/lib/systemd/system
+    [ -w /etc/systemd/system ] && _asu_sysdir=/etc/systemd/system
+    if [ -f /etc/rc.common ] && [ "$(cat /proc/1/comm 2>/dev/null)" = procd ]; then
+        _asu_external=/etc/init.d/shellcrash
+    elif [ -n "$_asu_sysdir" ] && { [ "$(id -u 2>/dev/null)" = 0 ] || [ "$USER" = root ]; } && [ "$(cat /proc/1/comm 2>/dev/null)" = systemd ]; then
+        _asu_external="$_asu_sysdir/shellcrash.service"
+    elif rc-status -r >/dev/null 2>&1; then
+        _asu_external=/etc/init.d/shellcrash
     fi
-
-    # 停服后二次同步关键配置文件快照（覆盖 stop 期间 web_save 等合法写盘）并写入主进程 PID 锁；失败则恢复原服务并中止
-    _asu_prep_err=0
-    for _cfg in configs/ShellCrash.cfg configs/command.env configs/directories.env; do
-        if [ -f "$CRASHDIR/$_cfg" ]; then
-            _asu_copy_verify "$CRASHDIR/$_cfg" "$_asu_bak/$_cfg" || _asu_prep_err=1
+    if [ -n "$_asu_external" ]; then
+        if [ -L "$_asu_external" ] || ! mkdir "$_asu_txn/external" || \
+           ! printf '%s\n' "$_asu_external" >"$_asu_txn/external/path"; then
+            rm -rf "$_asu_stage" "$_asu_txn"; return 1
         fi
-    done
-    if [ "$_asu_prep_err" != "0" ] || \
-       ! printf '%s\n' "$$" >"$_asu_txn/pending" || [ ! -s "$_asu_txn/pending" ]; then
-        rm -rf "$_asu_stage" "$_asu_txn"
-        [ "$_asu_was_running" = "1" ] && "$CRASHDIR"/start.sh start >/dev/null 2>&1 || true
-        return 1
+        if [ -e "$_asu_external" ]; then
+            if [ ! -f "$_asu_external" ] || ! _asu_copy_verify "$_asu_external" "$_asu_txn/external/backup" || ! : >"$_asu_txn/external/existed"; then
+                rm -rf "$_asu_stage" "$_asu_txn"; return 1
+            fi
+        else
+            : >"$_asu_txn/external/absent" || { rm -rf "$_asu_stage" "$_asu_txn"; return 1; }
+        fi
+        case "$_asu_external" in */systemd/system/*) : >"$_asu_txn/external/systemd" || { rm -rf "$_asu_stage" "$_asu_txn"; return 1; } ;; esac
     fi
 
+    # 原子发布非空 pending：所有恢复资料先就绪，之后才可停服。
+    if ! printf '%s\n' "$$" >"$_asu_txn/pending.tmp" || [ ! -s "$_asu_txn/pending.tmp" ] || \
+       ! mv "$_asu_txn/pending.tmp" "$_asu_txn/pending"; then
+        rm -rf "$_asu_stage" "$_asu_txn"
+        return 1
+    fi
     _asu_rollback() {
         trap '' TERM INT
         _SC_UPG_ACTIVE="rollback.$$"
         export _SC_UPG_ACTIVE
-        if _upg_txn_restore "$_asu_txn"; then
-            rm -rf "$_asu_txn"
-        fi
+        _upg_txn_restore "$_asu_txn" || true
         unset _SC_UPG_ACTIVE
-        rm -rf "$_asu_stage" "$_asu_tar"
+        rm -rf "$_asu_stage"
     }
 
     _SC_UPG_ACTIVE="$$"
@@ -328,23 +426,58 @@ apply_script_upgrade() {
     trap '_asu_rollback; exit 143' TERM
     trap '_asu_rollback; exit 130' INT
 
+    # 停服可能部分成功：失败同样恢复快照及原运行状态。
+    if [ -x "$CRASHDIR/start.sh" ] && ! "$CRASHDIR"/start.sh stop >/dev/null 2>&1; then
+        trap - TERM INT
+        _asu_rollback
+        return 1
+    fi
+    if ! : >"$_asu_txn/stopped"; then
+        trap - TERM INT
+        _asu_rollback
+        return 1
+    fi
+    # 停服期间可能写入配置；先写临时文件再替换，防中断损坏首轮快照。
+    _asu_prep_err=0
+    for _cfg in configs/ShellCrash.cfg configs/command.env configs/directories.env; do
+        if [ -f "$_asu_bak/$_cfg" ] && [ -f "$CRASHDIR/$_cfg" ] && [ ! -L "$CRASHDIR/$_cfg" ]; then
+            _asu_copy_verify "$CRASHDIR/$_cfg" "$_asu_txn/config.tmp" && \
+                mv -f "$_asu_txn/config.tmp" "$_asu_bak/$_cfg" || _asu_prep_err=1
+        elif [ -L "$CRASHDIR/$_cfg" ]; then
+            _asu_prep_err=1
+        fi
+    done
+    if [ "$_asu_prep_err" != 0 ]; then
+        trap - TERM INT
+        _asu_rollback
+        return 1
+    fi
+
     mkdir -p "$CRASHDIR" >/dev/null 2>&1
     _asu_ok=0
     if cp -af "$_asu_stage"/. "$CRASHDIR"/ 2>/dev/null && \
        ( CRASHDIR="$CRASHDIR" sh "$CRASHDIR"/init.sh >/dev/null ) && \
        [ -f "$_asu_txn/pending" ] && \
        { [ ! -s "$_asu_stage/version" ] || cmp -s "$_asu_stage/version" "$CRASHDIR/version"; } && \
-       { [ "$_asu_was_running" = 0 ] || { "$CRASHDIR"/start.sh start >/dev/null 2>&1 && _upg_check_service_ready; }; }; then
+       { [ "$_asu_was_running" = 0 ] || { : >"$_asu_txn/start_attempt" && "$CRASHDIR"/start.sh start >/dev/null 2>&1 && _upg_check_service_ready; }; }; then
         _asu_ok=1
     fi
 
-    trap - TERM INT
     if [ "$_asu_ok" = 1 ]; then
+        # 提交前仍保留回滚 trap；提交清理期间屏蔽普通终止信号。
+        trap '' TERM INT
         unset _SC_UPG_ACTIVE
-        rm -rf "$_asu_stage" "$_asu_txn"
+        rm -rf "$_asu_stage"
+        if ! rm -rf "$_asu_txn"; then
+            trap - TERM INT
+            echo "升级已启动但事务清理失败，请检查 $_asu_txn" >&2
+            return 1
+        fi
+        trap - TERM INT
         return 0
     else
         _asu_rollback
+        trap - TERM INT
         return 1
     fi
 }

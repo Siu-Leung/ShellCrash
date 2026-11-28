@@ -144,7 +144,7 @@ run_doctor() {
     else
         _dl_impl=$(command -v curl >/dev/null 2>&1 && printf 'curl' || printf 'wget')
         _b64_impl="awk-fallback"
-        command -v ucode >/dev/null 2>&1 && _b64_impl="ucode"
+        command -v ucode >/dev/null 2>&1 && ucode -e 'import * as fs from "fs"; if (type(fs.readfile) != "function" || type(fs.writefile) != "function") exit(1);' >/dev/null 2>&1 && _b64_impl="ucode"
         command -v openssl >/dev/null 2>&1 && _b64_impl="openssl"
         busybox base64 --help >/dev/null 2>&1 && _b64_impl="busybox-base64"
         command -v base64 >/dev/null 2>&1 && _b64_impl="base64"

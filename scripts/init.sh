@@ -71,10 +71,12 @@ fi
 [ -w /usr/lib/systemd/system ] && sysdir=/usr/lib/systemd/system
 [ -w /etc/systemd/system ] && sysdir=/etc/systemd/system
 if [ -f /etc/rc.common -a "$(cat /proc/1/comm 2>/dev/null)" = "procd" ]; then
-    #设为init.d方式启动
-    cp -f "$CRASHDIR"/starts/shellcrash.procd /etc/init.d/shellcrash
-    sed -i "s%/etc/ShellCrash%$CRASHDIR%g" /etc/init.d/shellcrash 2>/dev/null
-    chmod 755 /etc/init.d/shellcrash
+    # Render in the destination directory so a failed write leaves the old service intact.
+    . "$CRASHDIR"/libs/service_template.sh
+    if ! install_service_template "$CRASHDIR/starts/shellcrash.procd" /etc/init.d/shellcrash "$CRASHDIR"; then
+        echo "Failed to install OpenWrt service template" >&2
+        return 1 2>/dev/null || exit 1
+    fi
 elif [ -n "$sysdir" ] && { [ "$(id -u 2>/dev/null)" = "0" ] || [ "$USER" = "root" ]; } && [ "$(cat /proc/1/comm 2>/dev/null)" = "systemd" ]; then
     #创建shellcrash用户
     userdel shellcrash 2>/dev/null
@@ -92,10 +94,11 @@ elif [ -n "$sysdir" ] && { [ "$(id -u 2>/dev/null)" = "0" ] || [ "$USER" = "root
     sed -i "s%/etc/ShellCrash%$CRASHDIR%g" "$_installed_systemd_unit"
     rm -rf "$CRASHDIR"/starts/shellcrash.procd
 elif rc-status -r >/dev/null 2>&1; then
-    #设为openrc方式启动
-    mv -f "$CRASHDIR"/starts/shellcrash.openrc /etc/init.d/shellcrash
-    sed -i "s%/etc/ShellCrash%$CRASHDIR%g" /etc/init.d/shellcrash 2>/dev/null
-    chmod 755 /etc/init.d/shellcrash
+    . "$CRASHDIR"/libs/service_template.sh
+    if ! install_service_template "$CRASHDIR/starts/shellcrash.openrc" /etc/init.d/shellcrash "$CRASHDIR"; then
+        echo "Failed to install OpenRC service template" >&2
+        return 1 2>/dev/null || exit 1
+    fi
     rm -rf "$CRASHDIR"/starts/shellcrash.procd
 else
     #设为保守模式启动（不覆盖已有用户配置）

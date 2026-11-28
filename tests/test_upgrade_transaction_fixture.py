@@ -206,13 +206,15 @@ def external_cases(base):
 
 def concurrent_case(base):
     d, i, t, b, a, e = setup(base, 'concurrent', False)
+    tar_bin = shutil.which('tar') or '/bin/tar'
+    sleep_bin = shutil.which('sleep') or '/bin/sleep'
     put(b / 'tar', '''#!/bin/sh
 if [ "$BLOCK_TAR" = 1 ]; then
  : > "$LAB/ready"
- while [ ! -e "$LAB/release" ]; do /bin/sleep 0.02; done
+ while [ ! -e "$LAB/release" ]; do %s 0.02; done
 fi
-exec /bin/tar "$@"
-''', 0o755)
+exec %s "$@"
+''' % (sleep_bin, tar_bin), 0o755)
     first = subprocess.Popen(['sh', '-c', '. "$LIB"; apply_script_upgrade "$PKG"'],
                              env=dict(e, BLOCK_TAR='1'), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     try:
@@ -276,18 +278,20 @@ def stop_cases(base):
             put(b / name, '#!/bin/sh\necho "$*" >> "$LAB/called"\nexit 1\n', 0o755)
         put(d / 'procd', '#!/bin/sh\necho "$*" >> "$LAB/called"\nexit 1\n', 0o755)
         put(b / 'rc-status', '#!/bin/sh\nexit %s\n' % ('0' if platform == 'openrc' else '1'), 0o755)
+        grep_bin = shutil.which('grep') or '/bin/grep'
+        put(b / 'id', '#!/bin/sh\necho 0\n', 0o755)
         put(b / 'grep', '''#!/bin/sh
 case "$*" in
  *systemd*/proc/1/comm*) [ "$PLATFORM" = systemd ]; exit $?;;
  *procd*/proc/1/comm*) [ "$PLATFORM" = procd ]; exit $?;;
  *s6*/proc/1/comm*) exit 1;;
 esac
-exec /bin/grep "$@"
-''', 0o755)
+exec %s "$@"
+''' % grep_bin, 0o755)
         if platform == 'procd':
             put(d / 'rc.common', '')
         put(t / 'CrashCore', 'preserve')
-        r = run(dict(e, PLATFORM=platform), '"$CRASHDIR/start.sh" stop')
+        r = run(dict(e, PLATFORM=platform, USER='root'), '"$CRASHDIR/start.sh" stop')
         require(r.returncode != 0 and (d / 'called').exists() and (t / 'CrashCore').exists(), platform + ' stop failure propagated without deleting core', r.stdout)
 
 
